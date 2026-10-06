@@ -1,0 +1,25 @@
+# Minimal Supabase CLI config for `supabase start` / `supabase db reset` during local development.
+project_id = "lost-pod"
+
+[api]
+port = 54321
+schemas = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/confirm"]
+# Accounts are created by admins only.
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
