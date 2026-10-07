@@ -57,7 +57,7 @@ function loadInputs() {
   if (saPath) {
     const p = path.resolve(ROOT, saPath);
     if (!existsSync(p)) {
-      warn(`Google key file not found at ${saPath} — Google steps will be skipped.`);
+      if (path.basename(saPath) !== 'google-key.json') warn(`Google key file not found at ${saPath} — service-account steps skipped.`);
     } else {
       try {
         const j = JSON.parse(readFileSync(p, 'utf8'));
@@ -68,6 +68,10 @@ function loadInputs() {
       }
     }
   }
+  const bridgeUrl = get('GOOGLE_BRIDGE_URL');
+  if (bridgeUrl && !process.env.SETUP_ALLOW_ANY_BRIDGE_URL && !/^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[\w-]+\/exec\/?$/.test(bridgeUrl)) {
+    fail('GOOGLE_BRIDGE_URL must be the Apps Script web app URL ending in /exec (Deploy → Manage deployments → Web app URL).');
+  }
   const siteUrl = get('SITE_URL').replace(/\/$/, '');
   if (siteUrl && !/^https:\/\//.test(siteUrl)) fail('SITE_URL must start with https://');
   return {
@@ -75,6 +79,7 @@ function loadInputs() {
     token: get('SUPABASE_ACCESS_TOKEN'),
     admin: { email: get('ADMIN_EMAIL'), name: get('ADMIN_NAME'), password: get('ADMIN_PASSWORD') || null },
     sa,
+    bridge: { url: bridgeUrl, secret: get('GOOGLE_BRIDGE_SECRET') },
     gmailUser: get('GMAIL_IMPERSONATE_USER'),
     gmailSender: get('GMAIL_SENDER') || get('GMAIL_IMPERSONATE_USER'),
     vercel: {
@@ -91,6 +96,15 @@ function loadInputs() {
   };
 }
 type Inputs = ReturnType<typeof loadInputs>;
+
+/** Write KEY=value into setup.env (replacing an existing line), so a generated secret survives re-runs. */
+function saveSetupValue(key: string, value: string) {
+  const file = path.join(ROOT, 'setup.env');
+  const text = readFileSync(file, 'utf8');
+  const line = `${key}=${value}`;
+  const re = new RegExp(`^${key}=.*$`, 'm');
+  writeFileSync(file, re.test(text) ? text.replace(re, line) : `${text.replace(/\n?$/, '\n')}${line}\n`);
+}
 
 // ---------------------------------------------------------------- Supabase Management API
 function supabaseApi(inp: Inputs) {
@@ -161,24 +175,38 @@ const RECOVERY_HTML = `<h2>Reset your password</h2>
 <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery" style="display:inline-block;padding:10px 16px;background:#1F5FBF;color:#ffffff;text-decoration:none;border-radius:4px">Choose a new password</a></p>
 <p style="color:#4A5566;font-size:13px">If you did not ask for this, you can ignore this email; your password stays the same.</p>`;
 
-async function configureAuth(api: ReturnType<typeof supabaseApi>, inp: Inputs, siteUrl: string, extraUrls: string[] = []) {
+/** Returns true when the custom email templates were saved (needs a custom SMTP server on the free plan). */
+async function configureAuth(api: ReturnType<typeof supabaseApi>, inp: Inputs, siteUrl: string, extraUrls: string[] = []): Promise<boolean> {
   const allow = [...new Set([`${siteUrl}/auth/confirm`, `${siteUrl}/**`, 'http://localhost:3000/auth/confirm', 'http://localhost:3000/**', ...extraUrls])];
   const body: Record<string, unknown> = {
     site_url: siteUrl,
     uri_allow_list: allow.join(','),
     disable_signup: true,
     external_email_enabled: true,
-    mailer_subjects_invite: "You're invited to the Lost & POD desk",
-    mailer_templates_invite_content: INVITE_HTML,
-    mailer_subjects_recovery: 'Reset your Lost & POD desk password',
-    mailer_templates_recovery_content: RECOVERY_HTML,
     password_min_length: 10,
   };
   const s = inp.smtp;
-  if (s.host && s.user && s.pass && s.sender) {
-    Object.assign(body, { smtp_host: s.host, smtp_port: s.port, smtp_user: s.user, smtp_pass: s.pass, smtp_admin_email: s.sender, smtp_sender_name: s.name });
+  const hasSmtp = !!(s.host && s.user && s.pass && s.sender);
+  if (hasSmtp) {
+    Object.assign(body, {
+      smtp_host: s.host, smtp_port: s.port, smtp_user: s.user, smtp_pass: s.pass, smtp_admin_email: s.sender, smtp_sender_name: s.name,
+    });
   }
   await api.call('PATCH', `/v1/projects/${inp.ref}/config/auth`, body);
+  // Supabase's free plan only allows template changes with a custom SMTP server. Without them the
+  // standard emails are used; the app handles their links at /auth/callback, so both work.
+  try {
+    await api.call('PATCH', `/v1/projects/${inp.ref}/config/auth`, {
+      mailer_subjects_invite: "You're invited to the Lost & POD desk",
+      mailer_templates_invite_content: INVITE_HTML,
+      mailer_subjects_recovery: 'Reset your Lost & POD desk password',
+      mailer_templates_recovery_content: RECOVERY_HTML,
+    });
+    return true;
+  } catch (e) {
+    if (/template|free tier|smtp/i.test((e as Error).message)) return false;
+    throw e;
+  }
 }
 
 interface ApiKey {
@@ -314,9 +342,22 @@ async function deployToVercel(inp: Inputs, env: Record<string, string>): Promise
 // ---------------------------------------------------------------- Google checks
 async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string): Promise<{ sheets: boolean; gmail: boolean }> {
   const res = { sheets: false, gmail: false };
-  if (!inp.sa) {
-    warn('No Google key file — skipping Sheets and Gmail. Add GOOGLE_SERVICE_ACCOUNT_JSON later and run setup again.');
-    todo.push('Create the Google service account and run `npm run setup` again (SETUP.md, part B).');
+  const useBridge = !!inp.bridge.url;
+  let readerEmail = inp.sa?.email ?? '';
+  if (useBridge) {
+    const { callBridge } = await import('../src/lib/google/bridge');
+    try {
+      const p = await callBridge<{ email: string }>('ping', {}, 60_000);
+      readerEmail = p.email;
+      ok(`Google bridge is running as ${p.email}`);
+    } catch (e) {
+      warn(`Google bridge: ${(e as Error).message}`);
+      todo.push(`Fix the Google bridge (SETUP.md, part B): check the Web app URL and that the BRIDGE_SECRET script property is exactly:\n      ${inp.bridge.secret}`);
+      return res;
+    }
+  } else if (!inp.sa) {
+    warn('No Google connection yet — skipping Sheets and Gmail.');
+    todo.push(`Install the Google bridge in Apps Script (SETUP.md, part B). Use this value for the BRIDGE_SECRET script property:\n      ${inp.bridge.secret}\n   then put the Web app URL in setup.env as GOOGLE_BRIDGE_URL and run \`npm run setup\` again.`);
     return res;
   }
   const { getWorkbook } = await import('../src/lib/google/sheets');
@@ -341,9 +382,21 @@ async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string)
     }
   }
   if (unshared.length) {
-    todo.push(`Share these workbooks with ${inp.sa.email} as Viewer, then run setup again:\n      - ${unshared.join('\n      - ')}`);
+    todo.push(`${useBridge ? `Make sure ${readerEmail} can open these workbooks (ask the owner to share them)` : `Share these workbooks with ${readerEmail} as Viewer`}, then run setup again:\n      - ${unshared.join('\n      - ')}`);
   }
 
+  if (useBridge) {
+    try {
+      const { callBridge } = await import('../src/lib/google/bridge');
+      await callBridge('searchThreads', { query: 'newer_than:2d', max: 1 }, 60_000);
+      ok(`Gmail: can search ${readerEmail}'s mailbox; the daily report will be sent from it`);
+      res.gmail = true;
+    } catch (e) {
+      warn(`Gmail via bridge: ${(e as Error).message}`);
+      todo.push('Open the Apps Script project, run any function once (or redeploy) and accept the Gmail permission, then run setup again.');
+    }
+    return res;
+  }
   if (!inp.gmailUser) {
     warn('GMAIL_IMPERSONATE_USER is empty — skipping Gmail.');
     todo.push('Set GMAIL_IMPERSONATE_USER in setup.env (the escalations mailbox) and run setup again.');
@@ -360,7 +413,7 @@ async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string)
     const msg = String((e as Error).message ?? e);
     warn(`Gmail: not connected yet (${msg.split('\n')[0].slice(0, 140)})`);
     if (/unauthorized_client|delegation|not authorized/i.test(msg)) {
-      todo.push(`Turn on domain-wide delegation for client ID ${inp.sa.clientId || '(client_id in the key file)'} (SETUP.md, part C). It can take up to an hour to apply; then run setup again.`);
+      todo.push(`Turn on domain-wide delegation for client ID ${inp.sa?.clientId || '(client_id in the key file)'} (SETUP.md, part C). It can take up to an hour to apply; then run setup again.`);
     } else if (/disabled|not been used|not enabled/i.test(msg)) {
       todo.push('Enable the Gmail API in Google Cloud (APIs & Services → Library), then run setup again.');
     } else {
@@ -392,21 +445,27 @@ async function main() {
 
   const provisionalSite = inp.siteUrl || previous.NEXT_PUBLIC_SITE_URL?.replace(/^http:\/\/localhost:3000$/, '') || (inp.vercel.token ? `https://${inp.vercel.project}.vercel.app` : 'http://localhost:3000');
   step('Sign-in settings and email templates');
-  await configureAuth(api, inp, provisionalSite);
+  const templates = await configureAuth(api, inp, provisionalSite);
   ok('Public sign-up turned off (only admins create accounts)');
-  ok('Invite and reset-password emails point to /auth/confirm');
+  if (templates) ok('Branded invite and reset-password emails saved');
+  else info("Supabase's standard invite/reset emails kept (custom wording needs SMTP on the free plan) — their links work as they are");
   ok(`Site URL ${provisionalSite} and redirect URLs set`);
   if (inp.smtp.host) ok(`Emails sent through ${inp.smtp.host}`);
   else {
     warn("Using Supabase's built-in mailer (only a few emails per hour). Add SMTP_* to setup.env before inviting the whole team.");
   }
 
+  if (!inp.bridge.secret) {
+    inp.bridge.secret = previous.GOOGLE_BRIDGE_SECRET || randomBytes(24).toString('hex');
+    saveSetupValue('GOOGLE_BRIDGE_SECRET', inp.bridge.secret);
+  }
   const env: Record<string, string> = {
     NEXT_PUBLIC_SUPABASE_URL: supabaseUrl,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: keys.anon,
     SUPABASE_SERVICE_ROLE_KEY: keys.service,
     CRON_SECRET: previous.CRON_SECRET || randomBytes(24).toString('hex'),
-    ...(inp.sa ? { GOOGLE_SERVICE_ACCOUNT_EMAIL: inp.sa.email, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: inp.sa.key } : {}),
+    ...(inp.bridge.url ? { GOOGLE_BRIDGE_URL: inp.bridge.url, GOOGLE_BRIDGE_SECRET: inp.bridge.secret } : {}),
+    ...(inp.sa && !inp.bridge.url ? { GOOGLE_SERVICE_ACCOUNT_EMAIL: inp.sa.email, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: inp.sa.key } : {}),
     ...(inp.gmailUser ? { GMAIL_IMPERSONATE_USER: inp.gmailUser } : {}),
     ...(inp.gmailSender ? { GMAIL_SENDER: inp.gmailSender } : {}),
   };

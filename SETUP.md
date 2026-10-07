@@ -17,7 +17,7 @@
 
 You can run it again at any time, for example after adding the Google key. Nothing is duplicated.
 
-**What it cannot do:** two Google steps (B and C below). Google has no way to automate them; they take about 10 minutes of clicking.
+**What it cannot do:** install the Google connection (Part B). Google needs you to paste a script and click "Allow" once; it takes about 10 minutes and needs no Google Cloud access.
 
 ---
 
@@ -38,31 +38,53 @@ Nothing else is needed in the Supabase dashboard.
 
 ---
 
-## Part B: Google service account (5 minutes)
+## Part B: Connect Google through Apps Script (10 minutes, no Google Cloud access needed)
 
-1. Go to console.cloud.google.com and create a project called `lost-pod`. Use the project picker at the top → **New project**.
-2. Go to **APIs & Services → Library**.
-   - Search **Google Sheets API** → **Enable**.
-   - Search **Gmail API** → **Enable**.
-3. Go to **IAM & Admin → Service Accounts → Create service account**. Name it `lost-pod-reader` → **Done**.
-4. Click the new account → **Keys** tab → **Add key → Create new key → JSON**. A file downloads.
-5. Rename the file to `google-key.json` and put it in the project folder, next to `package.json`.
-   - It is a password; the project is set up so it is never uploaded to GitHub or Vercel.
+The app reads the trackers and the escalation emails through a small script that runs **as your own Google account**. It can open every tracker you can open and search your mailbox. The daily report is sent from your mailbox.
+
+Do this **after the first `npm run setup`**. That run prints a secret under "Still to do". If you ran it already, the secret is also saved in `setup.env` as `GOOGLE_BRIDGE_SECRET`.
+
+1. Open any Google Sheet you own. A new blank sheet named `Lost POD bridge` is best.
+2. Go to **Extensions → Apps Script**. Delete the sample code.
+3. Open `apps-script/Bridge.gs` from the project folder in Notepad, copy all of it, and paste it into the editor. Click **Save** (the disk icon).
+4. Click the **gear (Project Settings)** on the left. Scroll down to **Script properties** and click **Add script property**:
+   - Property: `BRIDGE_SECRET`
+   - Value: the secret from `setup.env`
+   - Click **Save script properties**.
+5. Click **Deploy → New deployment**. Click the gear next to "Select type" and choose **Web app**.
+   - **Execute as:** Me
+   - **Who has access:** Anyone
+   - Click **Deploy**.
+6. Click **Authorize access** and choose your shadowfax.in account.
+   - If you see "Google hasn't verified this app", click **Advanced → Go to … (unsafe)**. It is your own script.
+   - Click **Allow**. This lets it read Sheets and Gmail and send email as you.
+7. Copy the **Web app URL**. It ends in `/exec`.
+8. In `setup.env`, set `GOOGLE_BRIDGE_URL=<that URL>`, then run `npm run setup` again.
+
+Notes:
+- "Anyone" only means the URL can be called. Every request must carry the secret, or the script refuses it. Never share the URL together with the secret.
+- **If "Anyone" isn't offered**, your Workspace admin restricts web apps. Ask IT to allow Apps Script web apps for your account. Until then, use **Email escalations → Paste an email**. Tracker sync and the daily report will need the bridge.
+- **If a tracker isn't readable**, setup lists it. Ask its owner to share it with your account; you need at least view access.
+- **If you change `Bridge.gs` later**, go to **Deploy → Manage deployments → ✏️ → Version: New version → Deploy**. The URL stays the same.
+- Use a team mailbox account rather than a personal one, if you can. The bridge runs as whoever deployed it, so it stops working if that person leaves.
+- Gmail sending limits: about 1,500 recipients a day on Workspace. The daily report uses 3.
 
 ---
 
-## Part C: Allow the app to read the escalations mailbox (2 minutes, Google Workspace super admin)
+## Part C (only if you DO have Google Cloud access): service account instead of the bridge
 
-1. Open `google-key.json` in a text editor and copy the number after `"client_id"`.
-2. Go to admin.google.com → **Security → Access and data control → API controls → Manage Domain Wide Delegation → Add new**.
-   - **Client ID:** the number from step 1.
-   - **OAuth scopes:**
-     ```
-     https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send
-     ```
-   - Click **Authorize**.
+<details><summary>Show the service-account steps</summary>
 
-Google can take up to an hour to apply this. If setup says Gmail isn't connected yet, run it again later.
+1. Go to console.cloud.google.com and create a project.
+2. Enable the **Google Sheets API** and the **Gmail API**.
+3. Create a service account. Under **Keys → Add key → JSON**, download the key, save it as `google-key.json` in the project folder, and set `GOOGLE_SERVICE_ACCOUNT_JSON=./google-key.json`.
+4. In admin.google.com, go to **Security → API controls → Domain Wide Delegation** and add the key's `client_id` with these scopes:
+   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send`
+5. Set `GMAIL_IMPERSONATE_USER` to the escalations mailbox.
+6. Share each tracker with the service account's email as Viewer.
+
+If `GOOGLE_BRIDGE_URL` is set, the bridge is used and these settings are ignored.
+</details>
 
 ---
 
@@ -84,9 +106,8 @@ SUPABASE_ACCESS_TOKEN=<from part A>
 ADMIN_EMAIL=binay.sharma@shadowfax.in
 ADMIN_NAME=Binay Sharma
 ADMIN_PASSWORD=<choose one, 10+ characters>
-GOOGLE_SERVICE_ACCOUNT_JSON=./google-key.json
-GMAIL_IMPERSONATE_USER=<the escalations mailbox, e.g. tns-escalations@shadowfax.in>
 VERCEL_TOKEN=<from part A>
+GOOGLE_BRIDGE_URL=                 # leave empty on the first run (Part B)
 ```
 
 Then run:
@@ -97,10 +118,9 @@ npm run setup
 
 It takes about 5–10 minutes. Most of that is the first tracker import and the Vercel build. At the end it prints the live address and a short **Still to do** list, if anything is left.
 
-**Usually the list says:** *"Share these workbooks with lost-pod-reader@….iam.gserviceaccount.com"*. To fix that:
-1. Open each workbook listed.
-2. Click **Share**, paste that email, choose **Viewer**, untick "Notify", and click **Share**.
-3. Run `npm run setup` again.
+**On the first run the list says** *"Install the Google bridge … BRIDGE_SECRET …"*. Do Part B, then run `npm run setup` again. The second run imports the trackers and deploys with Google connected.
+
+**If it then lists trackers you can't open**, ask each owner to share them with your account, then run setup again.
 
 ### Options
 
@@ -113,6 +133,7 @@ It takes about 5–10 minutes. Most of that is the first tracker import and the 
 ### Good to know
 
 - **Vercel free (Hobby) plan:** scheduled jobs can run only once a day. Setup notices this, switches the tracker sync to once a day (07:30 IST), and tells you. The daily report at 09:00 IST is unaffected. On Vercel Pro the sync runs every 30 minutes.
+- **Supabase free plan:** setup keeps Supabase's standard invite and reset emails, because changing their wording needs your own email server. Their links work as they are. Add `SMTP_*` later and run setup again to get the branded emails.
 - **Invite emails:** Supabase's built-in mailer sends only a few emails per hour. Before inviting the whole team, fill in the `SMTP_*` lines in `setup.env` and run setup again. Google Workspace SMTP relay or a Gmail app password both work. Until then, create users with a password under **Users** and share it with them securely.
 - **Your own domain:** set `SITE_URL=https://pod.shadowfax.in` in `setup.env` once the domain points at Vercel, then run setup again.
 - **GitHub:** setup deploys straight from your folder, so GitHub isn't required to go live. To have every push deploy automatically, connect the repository later in Vercel → Project → **Settings → Git**.

@@ -1,0 +1,15 @@
+# Never upload local secrets or build output when deploying from this folder
+.env
+.env.*
+!.env.example
+setup.env
+*.pem
+google-key.json
+*service-account*.json
+google-credentials*.json
+node_modules
+.next
+.vercel
+report-preview.html
+lost-pod-report-*.xlsx
+tests/e2e

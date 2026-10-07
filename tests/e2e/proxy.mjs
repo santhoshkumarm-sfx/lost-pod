@@ -7,6 +7,14 @@ const decode = (jwt) => JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').t
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // Browsers call Supabase directly (like supabase.co does, with CORS).
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*');
+  res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] ?? '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    return res.end();
+  }
   if (url.pathname === '/auth/v1/user' && req.method === 'GET') {
     const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
     try {

@@ -6,7 +6,7 @@ import { sessionCookie } from './jwt.mjs';
 const BASE = 'http://localhost:3000';
 const manifest = JSON.parse(readFileSync('.next/server/server-reference-manifest.json', 'utf8')).node;
 const idOf = (file, name) => Object.entries(manifest).find(([, v]) => v.filename === file && v.exportedName === name)?.[0];
-const sql = (q) => execSync(`psql -h /tmp -p 5433 -U postgres -d lostpod_api -At -c "${q.replace(/"/g, '\\"')}"`).toString().trim();
+const sql = (q) => execSync(`psql -h ${process.env.PGHOST ?? "localhost"} -p ${process.env.PGPORT ?? "5433"} -U postgres -d lostpod_api -At -c "${q.replace(/"/g, '\\"')}"`).toString().trim();
 let failures = 0;
 
 async function act(role, page, file, name, fields) {

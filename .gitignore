@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next / build
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts.bak
+
+# env & secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+service-account*.json
+google-credentials*.json
+
+# supabase local
+supabase/.branches
+supabase/.temp
+
+# misc
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+.vercel
+coverage/
+report-preview.html
+lost-pod-report-*.xlsx
+setup.env
+google-key.json
+.env.local.bak

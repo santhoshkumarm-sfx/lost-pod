@@ -19,7 +19,7 @@ export async function ensureSuperAdmin(
       result = 'created';
     } else {
       const { data, error } = await sb.auth.admin.inviteUserByEmail(email, {
-        data: { full_name: opts.name }, redirectTo: `${opts.siteUrl}/auth/confirm?next=/update-password`,
+        data: { full_name: opts.name }, redirectTo: `${opts.siteUrl}/auth/callback?next=/update-password`,
       });
       if (error) throw new Error(`Could not invite ${email}: ${error.message}`);
       id = data.user.id;

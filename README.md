@@ -66,6 +66,8 @@ Roles are stored in `app_metadata`, which users cannot edit. Anyone who signs up
 
 ## 3. Connect Google
 
+> **No Google Cloud access?** Use the Apps Script bridge (`apps-script/Bridge.gs`, SETUP.md part B): it runs as a Shadowfax user and needs only `GOOGLE_BRIDGE_URL` and `GOOGLE_BRIDGE_SECRET`. When set, it is used for Sheets, Gmail search and sending the daily report.
+
 ### Option A: service account (recommended)
 
 1. In Google Cloud, create a project and enable the **Google Sheets API** and the **Gmail API**.

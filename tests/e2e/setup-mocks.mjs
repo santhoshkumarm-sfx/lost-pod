@@ -38,7 +38,12 @@ http.createServer(async (req, res) => {
   if (req.method === 'GET' && rest === '') return send(res, 200, { name: 'lost-pod', region: 'ap-south-1', status: 'ACTIVE_HEALTHY' });
   if (req.method === 'GET' && rest === '/api-keys') return send(res, 200, [{ name: 'anon', api_key: ANON }, { name: 'service_role', api_key: SERVICE }]);
   if (req.method === 'PATCH' && rest === '/config/auth') {
-    s.authConfig = { ...(s.authConfig ?? {}), ...(await body(req)) };
+    const b = await body(req);
+    // Free plan: templates can only change once a custom SMTP server is configured.
+    if (Object.keys(b).some((k) => k.startsWith('mailer_templates')) && !(s.authConfig ?? {}).smtp_host && !b.smtp_host) {
+      return send(res, 400, { message: 'Email template modification is not available for free tier projects using the default email provider. Please upgrade your plan or configure a custom SMTP provider.' });
+    }
+    s.authConfig = { ...(s.authConfig ?? {}), ...b };
     s.authPatches = (s.authPatches ?? 0) + 1;
     save(s);
     return send(res, 200, s.authConfig);
@@ -138,3 +143,48 @@ http.createServer(async (req, res) => {
   }
   send(res, 404, { error: { message: `no mock for ${req.method} ${u.pathname}` } });
 }).listen(4002, () => console.log('setup mocks listening on 4001, 54321, 4002'));
+
+// ---------------- Apps Script bridge (behaves like script.google.com: POST → 302 → GET one-time URL)
+const VELOCITY = [
+  [],
+  ['Client name', 'Esc Date', 'AEGING', 'AWB', 'Delivery date', 'Seller name', 'Hub', 'POD links', 'SFX remark', 'Remark', 'Mail subject', 'price'],
+  ['Velocity', '17 Sep', '#REF!', 'SF3583535088VEO', '10-09-2026 14:24', 'Eitheo', 'DEL_KirtiNagar_RTS', 'will share tomorrow', 'working on it', '', '', '24999'],
+  ['Velocity', '20 Sep', '', 'R2178493750VEO', '15-09-2026 12:09', 'Warrior World', 'ST_Godadara_RTS', '', 'LOST', 'Need LOST ASAP', '', '8999'],
+  ['Velocity', '', '', 'R2111303762VEO', '02-09-2026 17:11', 'Warrior World', 'ST_Godadara_RTS', 'https://drive.google.com/x', 'POD shared', '', 'POD needed - Shadowfax - 11-09-26', ''],
+];
+const pending = new Map();
+let seq = 0;
+http.createServer(async (req, res) => {
+  const u = new URL(req.url, 'http://x');
+  if (req.method === 'POST' && /^\/macros\/s\/[\w-]+\/exec$/.test(u.pathname)) {
+    const b = await body(req);
+    let out;
+    const s = load();
+    s.bridge = [...(s.bridge ?? []), b.action];
+    if (b.secret !== 'test-bridge-secret-0123456789') out = { ok: false, error: 'unauthorized' };
+    else if (b.action === 'ping') out = { ok: true, data: { email: 'santhoshkumar.m@shadowfax.in', version: 1 } };
+    else if (b.action === 'workbook') {
+      const own = b.params.workbookId.startsWith('17y1');
+      out = own ? { ok: true, data: { title: 'velocity', tabs: [{ title: 'Sheet1', rows: 6, cols: 12, hidden: false }] } }
+        : { ok: false, error: `You do not have permission to access the requested document.` };
+    } else if (b.action === 'readTab') out = { ok: true, data: b.params.workbookId.startsWith('17y1') && b.params.sheetName === 'Sheet1' ? VELOCITY : [] };
+    else if (b.action === 'searchThreads') out = { ok: true, data: [] };
+    else if (b.action === 'sendMail') {
+      s.mail = { to: b.params.to, subject: b.params.subject, htmlHasTop10: b.params.html.includes('Top 10 aging'), attachments: b.params.attachments.map((a) => ({ name: a.filename, bytes: Buffer.from(a.base64, 'base64').length })) };
+      out = { ok: true, data: { sent: true } };
+    } else out = { ok: false, error: 'Unknown action' };
+    save(s);
+    const id = String(++seq);
+    pending.set(id, out);
+    res.writeHead(302, { location: `http://localhost:4003/macros/echo?user_content_key=${id}` });
+    return res.end();
+  }
+  if (req.method === 'GET' && u.pathname === '/macros/echo') {
+    const out = pending.get(u.searchParams.get('user_content_key'));
+    if (!out) return send(res, 404, { error: 'gone' });
+    pending.delete(u.searchParams.get('user_content_key'));
+    return send(res, 200, out);
+  }
+  res.writeHead(200, { 'content-type': 'text/html' });
+  res.end('<html>Sign in - Google Accounts</html>');
+}).listen(4003);
