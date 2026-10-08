@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readTab } from '../google/sheets';
+import { readTab } from '../google';
 import { normalizeSheet, type NormalizedSheet } from '../normalize/sheet';
 import type { ColumnOverride } from '../normalize/headers';
 import { loadImportConfig, type ImportConfig } from './config';
@@ -60,6 +60,7 @@ export async function syncSource(
   source: SheetSource,
   cfg: ImportConfig,
   opts: { actor: string | null; trigger: 'manual' | 'cron' | 'cli' },
+  deadline?: number,
 ): Promise<SyncResult> {
   const label = `${source.workbook_name ?? source.workbook_id} › ${source.sheet_name}`;
   const result: SyncResult = {
@@ -72,6 +73,9 @@ export async function syncSource(
     .select('id')
     .single();
   const runId = run.data?.id as string | undefined;
+  // Move this tab to the back of the queue now, so a run that is cut off cannot block the other tabs forever.
+  await sb.from('sheet_sources').update({ last_synced_at: new Date().toISOString(), last_sync_status: 'running', last_sync_message: 'Sync started — if this stays, the run was cut off and continues next time.' }).eq('id', source.id);
+  let stoppedAt: number | null = null;
   const rowErrors: { row: unknown; awb: unknown; error: unknown }[] = [];
   let normalized: NormalizedSheet | null = null;
 
@@ -81,6 +85,10 @@ export async function syncSource(
     result.rowsRead = normalized.rowsRead;
     result.skipped = normalized.skipped;
     for (let i = 0; i < normalized.rows.length; i += BATCH) {
+      if (deadline && Date.now() > deadline) {
+        stoppedAt = i;
+        break;
+      }
       const batch = normalized.rows.slice(i, i + BATCH);
       const { data, error } = await sb.rpc('import_sheet_rows', { p_source_id: source.id, p_rows: batch, p_actor: opts.actor });
       if (error) throw new Error(`Import failed at row ${batch[0]?.row_number}: ${error.message}`);
@@ -97,6 +105,9 @@ export async function syncSource(
     if (!normalized.mapping.some((m) => m.target === 'awb')) {
       result.status = 'failed';
       result.message = 'No AWB column found — map one on this tab’s mapping screen.';
+    } else if (stoppedAt !== null) {
+      result.status = 'partial';
+      result.message = `Time limit: ${stoppedAt} of ${normalized.rows.length} rows done (${result.created} new, ${result.updated} updated). The rest continues on the next sync.`;
     } else if (rowErrors.length) {
       result.status = 'partial';
       result.message = `${rowErrors.length} row(s) could not be imported.`;
@@ -152,17 +163,14 @@ export async function syncSources(
   const results: SyncResult[] = [];
   for (const s of sources) {
     if (Date.now() - started > budget) break;
-    results.push(await syncSource(sb, s, cfg, opts));
+    results.push(await syncSource(sb, s, cfg, opts, started + budget));
   }
   const lost = results.reduce((n, r) => n + r.lostRequests, 0);
   if (lost > 0) {
-    await sb.rpc('notify_admins', {
-      p_type: 'lost_request',
-      p_title: `${lost} Lost request${lost === 1 ? '' : 's'} from Google Sheets`,
-      p_body: 'Trackers marked these shipments Lost. They are waiting for Admin approval and are not Lost until approved.',
-      p_case: null,
-      p_link: '/lost-approval',
-    });
+    // In-app notifications are created per request by the database.
+    // One email per Lost request (per tracker tab and client) created by this run.
+    const { emailNewLostRequests } = await import('../notify');
+    await emailNewLostRequests();
   }
   return { results, remaining: sources.length - results.length };
 }

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { isCronAuthorized } from '@/lib/cron';
-import { googleStatus } from '@/lib/google/auth';
+import { googleStatus } from '@/lib/google';
 import { syncSources } from '@/lib/importer/sheets-sync';
 import { createAdminClient } from '@/lib/supabase/admin';
 

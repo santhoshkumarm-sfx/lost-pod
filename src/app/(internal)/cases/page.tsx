@@ -3,7 +3,8 @@ import { SelectAll, SubmitButton } from '@/components/buttons';
 import { CaseFilterForm } from '@/components/CaseFilterForm';
 import { Aging, Empty, Flash, PageHeader, Pagination, SortHeader, SourceTag, StatusBadge } from '@/components/ui';
 import { isAdminRole, requireInternal } from '@/lib/auth';
-import { applyCaseFilters, filtersToQuery, parseCaseFilters } from '@/lib/cases/filters';
+import { applyCaseFilters, filtersToQuery, getCriticalDays, parseCaseFilters, statsFilter, type PodStats } from '@/lib/cases/filters';
+import { PodTiles } from '@/components/pod';
 import type { SearchParams } from '@/lib/flash';
 import { fmtDate } from '@/lib/format';
 import { getAgents, getBuckets, getClients, getStatuses } from '@/lib/lookups';
@@ -16,12 +17,17 @@ export const metadata = { title: 'Cases' };
 export default async function CasesPage({ searchParams }: { searchParams: SearchParams }) {
   const user = await requireInternal();
   const sp = await searchParams;
-  const f = parseCaseFilters(sp);
+  const f = parseCaseFilters(sp, { category: 'pending_pod' });
   const supabase = await createClient();
-  const [clients, statuses, buckets, agents] = await Promise.all([getClients(supabase), getStatuses(supabase), getBuckets(supabase), getAgents(supabase)]);
+  const criticalDays = await getCriticalDays(supabase);
+  const [clients, statuses, buckets, agents, statsRes] = await Promise.all([
+    getClients(supabase), getStatuses(supabase), getBuckets(supabase), getAgents(supabase),
+    supabase.rpc('pod_stats', { p: statsFilter(f, { category: 'all', status: '', agemin: '', agemax: '', aging: '' }) }),
+  ]);
+  const st = statsRes.data as PodStats | null;
 
   let q = supabase.from('v_cases').select(CASE_LIST_COLUMNS, { count: 'exact' });
-  q = applyCaseFilters(q, f);
+  q = applyCaseFilters(q, f, { criticalDays });
   q = q.order(f.sort, { ascending: f.dir === 'asc', nullsFirst: false }).order('case_number', { ascending: false });
   const { data, count, error } = await q.range((f.page - 1) * f.size, f.page * f.size - 1);
   if (error) throw new Error(error.message);
@@ -40,6 +46,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
           <>
             <a className="btn" href={`/api/export/cases${exportQs ? exportQs + '&' : '?'}format=csv`}>Export CSV</a>
             <a className="btn" href={`/api/export/cases${exportQs ? exportQs + '&' : '?'}format=xlsx`}>Export Excel</a>
+            <Link className="btn" href="/cases/upload">Upload Excel</Link>
             <Link className="btn btn-primary" href="/cases/new">Add case</Link>
           </>
         }
@@ -49,12 +56,20 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
         f={f}
         action="/cases"
         clearHref="/cases"
-        fields={['q', 'client', 'category', 'status', 'aging', 'hub', 'agent', 'source', 'dates', 'sla']}
+        fields={['q', 'client', 'category', 'agent']}
+        more={['status', 'aging', 'hub', 'source', 'dates', 'sla']}
+        criticalDays={criticalDays}
         clients={clients}
         statuses={statuses}
         buckets={buckets}
         agents={agents}
       />
+      {st && (
+        <PodTiles
+          s={st}
+          href={(k) => href({ category: k === 'pending' ? 'pending_pod' : k === 'shared' ? 'pod_done' : k, status: null, agemin: null, agemax: null, aging: null, page: 1 })}
+        />
+      )}
       <form action={bulkUpdate} className="panel">
         <input type="hidden" name="back" value={`/cases${query}`} />
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs">
@@ -63,6 +78,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
             <option value="">Choose action</option>
             <option value="assign">Assign agent</option>
             <option value="status">Change status</option>
+            <option value="request_lost">Request Lost</option>
           </select>
           <select name="bulk_agent" className="input input-sm w-40" defaultValue={isAdminRole(user.role) ? '' : user.id}>
             <option value="">Unassigned</option>
@@ -72,8 +88,9 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
             <option value="">Status…</option>
             {manualStatuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
           </select>
+          <input name="bulk_reason" className="input input-sm w-56" placeholder="Reason (for Request Lost)" />
           <SubmitButton className="btn btn-sm" pending="Updating…">Apply to selected</SubmitButton>
-          <span className="ml-auto text-ink-faint">Lost is only set through a Lost request and Admin approval.</span>
+          <span className="ml-auto text-ink-faint">Lost is only set after an approver accepts the request. Counts above follow your filters.</span>
         </div>
         <div className="tbl-wrap">
           <table className="tbl">

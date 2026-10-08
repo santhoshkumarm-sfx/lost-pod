@@ -78,7 +78,7 @@ export async function buildReportWorkbook(data: DailyReportData, cases: CaseExpo
     { k: 'Total cases', v: s.total_cases }, { k: 'Total open', v: s.total_open }, { k: 'New escalations (since yesterday)', v: s.new_escalations },
     { k: 'Pending', v: s.pending }, { k: 'Working on it', v: s.working_on_it }, { k: 'POD Shared', v: s.pod_shared },
     { k: 'Shipment at DC', v: s.shipment_at_dc }, { k: 'Shipment at Hub', v: s.shipment_at_hub },
-    { k: 'Lost — pending Admin approval', v: s.lost_pending }, { k: 'Lost', v: s.lost }, { k: 'Closed', v: s.closed },
+    { k: 'Lost — pending approval', v: s.lost_pending }, { k: 'Lost', v: s.lost }, { k: 'Closed', v: s.closed },
     { k: 'TAT breached', v: s.tat_breached },
   ]);
 

@@ -7,19 +7,15 @@ export default async function InternalLayout({ children }: { children: React.Rea
   const user = await requireInternal();
   const admin = isAdminRole(user.role);
   const supabase = await createClient();
-  const [pendingLost, unread, emails] = await Promise.all([
-    supabase.from('lost_approvals').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    supabase.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
-    supabase.from('emails').select('id', { count: 'exact', head: true }).eq('status', 'needs_review'),
-  ]);
+  const { data: counts } = await supabase.rpc('sidebar_counts');
+  const c = (counts ?? {}) as { unread?: number; emails?: number; lost_requests?: number };
 
   const work: NavItem[] = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/cases', label: 'Cases' },
-    { href: '/email-escalations', label: 'Email escalations', badge: emails.count ?? 0 },
+    { href: '/email-escalations', label: 'Email escalations', badge: c.emails ?? 0 },
     { href: '/imports', label: 'Google Sheet imports' },
-    { href: '/lost-approval', label: 'Lost approval', badge: pendingLost.count ?? 0 },
-    { href: '/lost', label: 'Lost shipments' },
+    { href: '/lost-approval', label: 'Lost approval', badge: c.lost_requests ?? 0 },
   ];
   const people: NavItem[] = [
     { href: '/clients', label: 'Clients' },
@@ -46,6 +42,7 @@ export default async function InternalLayout({ children }: { children: React.Rea
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-white/95 px-6 py-2 backdrop-blur">
           <form action="/cases" className="flex max-w-xl flex-1 items-center gap-2">
+            <input type="hidden" name="category" value="all" />
             <input
               name="q"
               className="input"
@@ -58,7 +55,7 @@ export default async function InternalLayout({ children }: { children: React.Rea
           <div className="ml-auto flex items-center gap-2">
             <Link href="/notifications" className="btn btn-ghost">
               Notifications
-              {!!unread.count && <span className="rounded-sm bg-age-3 px-1.5 text-2xs font-semibold text-white">{unread.count}</span>}
+              {!!c.unread && <span className="rounded-sm bg-age-3 px-1.5 text-2xs font-semibold text-white">{c.unread}</span>}
             </Link>
             <form action="/signout" method="post">
               <button className="btn btn-ghost">Sign out</button>

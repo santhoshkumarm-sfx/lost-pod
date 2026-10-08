@@ -1,25 +1,35 @@
 import Link from 'next/link';
 import type { CaseFilters } from '@/lib/cases/filters';
+import { clientStatusLabel } from '@/lib/format';
 
 type FieldKey = 'q' | 'client' | 'category' | 'status' | 'aging' | 'hub' | 'agent' | 'poc' | 'source' | 'sla' | 'reason' | 'dates';
 
-export function CaseFilterForm({ f, fields, clients, statuses, buckets, agents, pocs, action, dateLabel = 'Escalated', clearHref }: {
+export function CaseFilterForm({ f, fields, more = [], clients, statuses, buckets, agents, pocs, action, dateLabel = 'Escalated', clearHref, clientView, criticalDays = 7, hidden = {} }: {
   f: CaseFilters;
   fields: FieldKey[];
   clients?: { id: string; name: string }[];
-  statuses?: { code: string; label: string }[];
+  statuses?: { code: string; label: string; category?: string }[];
   buckets?: { label: string }[];
   agents?: { id: string; full_name: string | null; email: string }[];
   pocs?: { id: string; name: string }[];
   action: string;
   dateLabel?: string;
   clearHref: string;
+  clientView?: boolean;
+  /** Fields shown under "More filters" (collapsed unless one of them is in use). */
+  more?: FieldKey[];
+  criticalDays?: number;
+  hidden?: Record<string, string>;
 }) {
-  const has = (k: FieldKey) => fields.includes(k);
-  return (
-    <form action={action} className="panel mb-4 flex flex-wrap items-end gap-3 px-4 py-3">
-      <input type="hidden" name="sort" value={f.sort} />
-      <input type="hidden" name="dir" value={f.dir} />
+  const main = (k: FieldKey) => fields.includes(k);
+  const extra = (k: FieldKey) => more.includes(k);
+  const used: Record<FieldKey, boolean> = {
+    q: !!f.q, client: !!f.client, category: false, status: !!f.status, aging: !!f.aging || !!f.agemin || !!f.agemax, hub: !!f.hub, agent: !!f.agent,
+    poc: !!f.poc, source: !!f.source, sla: f.sla === '1', reason: !!f.reason, dates: !!(f.from || f.to),
+  };
+  const open = more.some((k) => used[k]);
+  const render = (has: (k: FieldKey) => boolean) => (
+    <>
       {has('q') && (
         <label className="min-w-[240px] flex-1">
           <span className="label">Search</span>
@@ -40,10 +50,13 @@ export function CaseFilterForm({ f, fields, clients, statuses, buckets, agents, 
         <label>
           <span className="label">Show</span>
           <select name="category" defaultValue={f.category} className="input w-44">
-            <option value="active">Open (incl. Lost requests)</option>
-            <option value="open">Open only</option>
-            <option value="lost_pending">Awaiting Lost approval</option>
-            <option value="lost">Lost</option>
+            <option value="pending_pod">Pending POD</option>
+            <option value="critical">Critical — pending over {criticalDays} days</option>
+            <option value="pod_done">POD shared / closed</option>
+            <option value="active">{clientView ? 'Open (incl. loss requested)' : 'Open (incl. Lost requests)'}</option>
+            <option value="open">Open, incl. POD shared</option>
+            <option value="lost_pending">{clientView ? 'Loss requested — under review' : 'Awaiting Lost approval'}</option>
+            <option value="lost">{clientView ? 'Loss accepted' : 'Lost'}</option>
             <option value="closed">Closed</option>
             <option value="all">Everything</option>
           </select>
@@ -54,7 +67,7 @@ export function CaseFilterForm({ f, fields, clients, statuses, buckets, agents, 
           <span className="label">Status</span>
           <select name="status" defaultValue={f.status} className="input w-44">
             <option value="">Any</option>
-            {statuses.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+            {statuses.map((s) => <option key={s.code} value={s.code}>{clientView ? clientStatusLabel(s.category, s.label) : s.label}</option>)}
           </select>
         </label>
       )}
@@ -126,8 +139,26 @@ export function CaseFilterForm({ f, fields, clients, statuses, buckets, agents, 
           <input type="checkbox" name="sla" value="1" defaultChecked={f.sla === '1'} /> TAT breached only
         </label>
       )}
-      <button className="btn btn-primary">Apply</button>
-      <Link href={clearHref} className="btn btn-ghost">Clear</Link>
+    </>
+  );
+  return (
+    <form action={action} className="panel mb-4 px-4 py-3">
+      <input type="hidden" name="sort" value={f.sort} />
+      <input type="hidden" name="dir" value={f.dir} />
+      {f.agemin && <input type="hidden" name="agemin" value={f.agemin} />}
+      {f.agemax && <input type="hidden" name="agemax" value={f.agemax} />}
+      {Object.entries(hidden).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+      <div className="flex flex-wrap items-end gap-3">
+        {render(main)}
+        <button className="btn btn-primary">Apply</button>
+        <Link href={clearHref} className="btn btn-ghost">Clear</Link>
+      </div>
+      {more.length > 0 && (
+        <details open={open} className="mt-2">
+          <summary className="cursor-pointer text-xs text-ink-soft">More filters</summary>
+          <div className="mt-2 flex flex-wrap items-end gap-3">{render(extra)}</div>
+        </details>
+      )}
     </form>
   );
 }

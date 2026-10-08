@@ -30,14 +30,28 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, bridge: 'lost-pod', version: 1 }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, bridge: 'lost-pod', version: 2 }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function folder_(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
 }
 
 function handle_(action, p) {
   switch (action) {
     case 'ping':
-      return { email: Session.getEffectiveUser().getEmail(), version: 1 };
+      return { email: Session.getEffectiveUser().getEmail(), version: 2 };
+
+    case 'saveFile': {
+      // Uploaded case sheets are kept in "<folder>/<sub folder>" in the bridge owner's Drive.
+      var root = folder_(DriveApp.getRootFolder(), p.folder || 'Lost POD uploads');
+      var dir = p.subFolder ? folder_(root, p.subFolder) : root;
+      var blob = Utilities.newBlob(Utilities.base64Decode(p.base64), p.contentType || 'application/octet-stream', p.filename);
+      var f = dir.createFile(blob);
+      return { id: f.getId(), url: f.getUrl() };
+    }
 
     case 'workbook': {
       var ss = SpreadsheetApp.openById(p.workbookId);

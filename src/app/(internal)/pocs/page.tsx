@@ -28,7 +28,7 @@ export default async function PocsPage({ searchParams }: { searchParams: SearchP
     <>
       <PageHeader
         title="Client POCs"
-        sub="Contacts on the client side. A POC with a portal login sees only their own client’s cases and can request Lost for Admin approval."
+        sub="Contacts on the client side. A POC with a portal login sees only their own client’s cases and can request Lost for approval."
       />
       <Flash sp={sp} />
       <form className="mb-3 flex items-end gap-2">
@@ -63,7 +63,7 @@ export default async function PocsPage({ searchParams }: { searchParams: SearchP
                 <td>{p.email ?? '—'}</td>
                 <td>{p.phone ?? '—'}</td>
                 <td>{p.user_id ? (p.profiles?.is_active ? 'Active' : 'Disabled') : 'No login'}</td>
-                <td className="text-right"><Link href={`/cases?poc=${p.id}`}>{open.get(p.id) ?? 0}</Link></td>
+                <td className="text-right"><Link href={`/cases?poc=${p.id}&category=active`}>{open.get(p.id) ?? 0}</Link></td>
                 {admin && (
                   <td className="flex gap-1">
                     {!p.user_id && p.email && p.is_active && (

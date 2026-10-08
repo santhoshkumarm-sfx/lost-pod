@@ -16,8 +16,36 @@ async function done(fn: () => Promise<string>): Promise<never> {
   redirect(dest);
 }
 
+const emails = (v: unknown) => (Array.isArray(v) && v.every((e) => typeof e === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) ? null : 'A list of email addresses separated by commas.');
+const hour = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 23 ? null : 'An hour from 0 to 23.');
+const LIST_KEYS = new Set(['report_recipients', 'report_cc', 'internal_email_domains', 'lost_request_email_to', 'lost_request_email_cc', 'lost_decision_email_to', 'lost_decision_email_cc', 'weekly_report_recipients', 'weekly_report_cc', 'loss_accepted_email_to', 'loss_accepted_email_cc', 'critical_alert_email_to', 'critical_alert_email_cc']);
+const BOOL_KEYS = new Set(['notify_admins_by_email', 'daily_report_enabled', 'weekly_report_enabled', 'critical_alert_enabled', 'critical_alert_to_agents']);
+const LABEL: Record<string, string> = {
+  lost_request_email_to: 'Lost requests — To', lost_request_email_cc: 'Lost requests — CC', lost_decision_email_to: 'Rejected / sent back — To',
+  lost_decision_email_cc: 'Rejected / sent back — CC', loss_accepted_email_to: 'Loss accepted — To', loss_accepted_email_cc: 'Loss accepted — CC', report_recipients: 'Daily report — To', report_cc: 'Daily report — CC',
+  weekly_report_recipients: 'Weekly report — To', weekly_report_cc: 'Weekly report — CC', critical_alert_email_to: 'Critical alert — To', critical_alert_email_cc: 'Critical alert — CC', critical_aging_days: 'Critical after (days)',
+};
+
 const VALIDATORS: Record<string, (v: unknown) => string | null> = {
-  report_recipients: (v) => (Array.isArray(v) && v.every((e) => typeof e === 'string' && /^[^@\s]+@[^@\s]+$/.test(e)) ? null : 'A list of email addresses.'),
+  report_recipients: (v) => emails(v) ?? ((v as string[]).length ? null : 'Add at least one address.'),
+  weekly_report_recipients: (v) => emails(v) ?? ((v as string[]).length ? null : 'Add at least one address.'),
+  lost_request_email_to: emails,
+  lost_request_email_cc: emails,
+  lost_decision_email_to: emails,
+  lost_decision_email_cc: emails,
+  loss_accepted_email_to: emails,
+  loss_accepted_email_cc: emails,
+  report_cc: emails,
+  weekly_report_cc: emails,
+  daily_report_hour: hour,
+  critical_alert_hour: hour,
+  critical_alert_email_to: (v) => emails(v) ?? ((v as string[]).length ? null : 'Add at least one address.'),
+  critical_alert_email_cc: emails,
+  critical_aging_days: (v) => (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 90 ? null : 'A whole number of days (1–90).'),
+  weekly_report_hour: hour,
+  weekly_report_day: (v) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 6 ? null : 'A day from 0 (Sunday) to 6 (Saturday).'),
+  daily_report_enabled: (v) => (typeof v === 'boolean' ? null : 'true or false.'),
+  weekly_report_enabled: (v) => (typeof v === 'boolean' ? null : 'true or false.'),
   report_aging_order: (v) => (v === 'asc' || v === 'desc' ? null : '"asc" or "desc".'),
   default_sla_days: (v) => (Number.isInteger(v) && (v as number) > 0 ? null : 'A whole number of days.'),
   dedupe_window_days: (v) => (Number.isInteger(v) && (v as number) >= 0 ? null : 'A whole number of days.'),
@@ -48,14 +76,15 @@ export async function saveSettings(fd: FormData) {
   const user = await requireAdmin();
   await done(async () => {
     const sb = await createClient();
+    const current = new Map(((await sb.from('app_settings').select('key, value')).data ?? []).map((r) => [r.key as string, JSON.stringify(r.value)]));
     let n = 0;
     for (const [name, raw] of fd.entries()) {
       if (!name.startsWith('setting:')) continue;
       const key = name.slice(8);
       const text = String(raw).trim();
       let value: unknown;
-      if (key === 'report_recipients' || key === 'internal_email_domains') value = text.split(/[\s,;]+/).filter(Boolean);
-      else if (key === 'notify_admins_by_email') value = text === 'true';
+      if (LIST_KEYS.has(key)) value = [...new Set(text.split(/[\s,;]+/).filter(Boolean).map((e) => (key === 'internal_email_domains' ? e : e.toLowerCase())))];
+      else if (BOOL_KEYS.has(key)) value = text === 'true';
       else {
         try {
           value = JSON.parse(text);
@@ -64,11 +93,12 @@ export async function saveSettings(fd: FormData) {
         }
       }
       const problem = VALIDATORS[key]?.(value);
-      if (problem) throw new Error(`${key}: ${problem}`);
+      if (problem) throw new Error(`${LABEL[key] ?? key}: ${problem}`);
+      if (current.get(key) === JSON.stringify(value)) continue;
       must(await sb.from('app_settings').update({ value, updated_by: user.id, updated_at: new Date().toISOString() }).eq('key', key).select('key'));
       n++;
     }
-    return `${n} setting(s) saved.`;
+    return n ? `${n} setting(s) saved.` : 'Nothing changed.';
   });
 }
 

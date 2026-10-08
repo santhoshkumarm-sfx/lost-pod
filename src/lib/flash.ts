@@ -12,7 +12,7 @@ export function withFlash(path: string, kind: 'ok' | 'error', message: string): 
 export function errorText(e: unknown): string {
   const raw =
     e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String((e as { message: unknown }).message) : String(e);
-  return raw.replace(/^LOST_WORKFLOW:\s*/, '').replace(/^new row violates row-level security policy.*$/i, 'You do not have permission to change this record.');
+  return raw.replace(/^(LOST_WORKFLOW|NOT_APPROVER):\s*/, '').replace(/^new row violates row-level security policy.*$/i, 'You do not have permission to change this record.');
 }
 
 /** Unwrap a Supabase response, throwing its error. */

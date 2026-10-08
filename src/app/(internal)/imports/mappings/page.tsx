@@ -86,7 +86,7 @@ export default async function MappingsPage({ searchParams }: { searchParams: Sea
             </form>
           )}
           <p className="px-4 pt-3 text-xs text-ink-faint">
-            Lower order is checked first. Any wording mapped to a Lost status only creates a Lost request for Admin approval.
+            Lower order is checked first. Any wording mapped to a Lost status only creates a Lost request for approval.
           </p>
           <div className="tbl-wrap">
             <table className="tbl">

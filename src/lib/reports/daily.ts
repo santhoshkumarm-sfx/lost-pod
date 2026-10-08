@@ -1,7 +1,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { publicEnv } from '../env';
-import { sendMail } from '../google/gmail';
+import { sendMail } from '../google';
 import { fmtDate } from '../format';
 import { renderDailyReportHtml } from './html';
 import { CASE_EXPORT_COLUMNS, type CaseExportRow, type DailyReportData } from './types';
@@ -22,11 +22,12 @@ export async function fetchAllCases(sb: SupabaseClient, columns = CASE_EXPORT_CO
 }
 
 async function reportSettings(sb: SupabaseClient) {
-  const { data } = await sb.from('app_settings').select('key, value').in('key', ['report_recipients', 'report_aging_order', 'report_lost_body_days']);
+  const { data } = await sb.from('app_settings').select('key, value').in('key', ['report_recipients', 'report_cc', 'report_aging_order', 'report_lost_body_days']);
   const get = (k: string) => data?.find((r) => r.key === k)?.value;
-  const recipients = (get('report_recipients') as string[] | undefined) ?? [];
+  const list = (k: string) => ((get(k) as string[] | undefined) ?? []).filter((r) => typeof r === 'string' && r.includes('@'));
   return {
-    recipients: recipients.filter((r) => typeof r === 'string' && r.includes('@')),
+    recipients: list('report_recipients'),
+    cc: list('report_cc'),
     agingOrder: (get('report_aging_order') === 'desc' ? 'desc' : 'asc') as 'asc' | 'desc',
     lostDays: Number(get('report_lost_body_days') ?? 30) || 30,
   };
@@ -38,6 +39,7 @@ export interface BuiltReport {
   subject: string;
   filename: string;
   recipients: string[];
+  cc: string[];
   xlsx: Buffer | null;
 }
 
@@ -53,7 +55,7 @@ export async function buildDailyReport(sb: SupabaseClient, opts: { withAttachmen
   });
   const xlsx = opts.withAttachment ? await buildReportWorkbook(report, await fetchAllCases(sb), settings.agingOrder) : null;
   return {
-    data: report, html, filename, xlsx, recipients: settings.recipients,
+    data: report, html, filename, xlsx, recipients: settings.recipients, cc: settings.cc,
     subject: `Lost / POD daily report — ${fmtDate(report.report_date)} — ${report.summary.total_open} open, ${report.summary.lost_pending} awaiting Lost approval`,
   };
 }
@@ -61,24 +63,28 @@ export async function buildDailyReport(sb: SupabaseClient, opts: { withAttachmen
 /** Builds and emails the report, and logs the run in report_runs. Use a service-role client. */
 export async function sendDailyReport(
   sb: SupabaseClient,
-  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[] },
+  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; periodKey?: string | null },
 ): Promise<{ recipients: string[]; messageId: string | null }> {
   let recipients: string[] = opts.to ?? [];
   try {
     const r = await buildDailyReport(sb, { withAttachment: true });
     recipients = opts.to?.length ? opts.to : r.recipients;
     if (!recipients.length) throw new Error('No report recipients configured (Settings → report_recipients).');
+    const cc = opts.to?.length ? [] : r.cc.filter((e) => !recipients.includes(e));
     const messageId = await sendMail({
-      to: recipients, subject: r.subject, html: r.html,
+      to: recipients, cc, subject: r.subject, html: r.html,
       attachments: [{ filename: r.filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: r.xlsx! }],
     });
     await sb.from('report_runs').insert({
-      status: 'sent', recipients, summary: r.data.summary, triggered_by: opts.triggeredBy ?? null, trigger_type: opts.trigger,
+      report_type: 'daily_admin', status: 'sent', recipients: [...recipients, ...cc], summary: r.data.summary,
+      triggered_by: opts.triggeredBy ?? null, trigger_type: opts.trigger, period_key: opts.periodKey ?? null,
     });
     return { recipients, messageId };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await sb.from('report_runs').insert({ status: 'failed', recipients, error: message, triggered_by: opts.triggeredBy ?? null, trigger_type: opts.trigger });
+    await sb.from('report_runs').insert({
+      report_type: 'daily_admin', status: 'failed', recipients, error: message, triggered_by: opts.triggeredBy ?? null, trigger_type: opts.trigger, period_key: opts.periodKey ?? null,
+    });
     throw e;
   }
 }

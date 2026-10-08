@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAdmin, requireInternal } from '@/lib/auth';
 import { errorText, must, str, strOrNull, withFlash } from '@/lib/flash';
-import { getWorkbook, parseWorkbookId } from '@/lib/google/sheets';
+import { getWorkbook, parseWorkbookId } from '@/lib/google';
 import { syncSources } from '@/lib/importer/sheets-sync';
 import { isTargetField } from '@/lib/normalize/fields';
 import { normHeader, normText } from '@/lib/normalize/text';
@@ -55,7 +55,7 @@ export async function addWorkbook(fd: FormData) {
     }));
     const { error } = await sb.from('sheet_sources').upsert(rows, { onConflict: 'workbook_id,sheet_name', ignoreDuplicates: true });
     if (error) throw error;
-    return `Added ${rows.length} tab(s) from “${wb.title}”. They start switched off: check each tab’s mapping, then turn it on. Remember to share the workbook with the service account.`;
+    return `Added ${rows.length} tab(s) from “${wb.title}”. They start switched off: check each tab’s mapping, then turn it on. The workbook must be shared with the Google account that runs the bridge.`;
   });
 }
 

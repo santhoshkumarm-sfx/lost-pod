@@ -81,7 +81,7 @@ do $$ begin
     perform decide_lost((select id from lost_approvals limit 1), 'approved', null);
     raise exception 'FAIL: agent approved lost';
   exception when others then
-    if sqlerrm not like 'Only an Admin%' then raise; end if;
+    if sqlerrm not like 'NOT_APPROVER%' then raise; end if;
   end;
   begin
     update cases set team_status = 'closed' where awb='R2466544662BDM';
@@ -99,9 +99,50 @@ end $$;
 update cases set team_status='working_on_it', assigned_agent=auth.uid() where awb='SF3192169858NAA';
 reset role;
 
--- ===== Admin approves (approved "today"; aging measured from 01-Aug) =====
+-- ===== Lost approver rights =====
 set role authenticated;
+-- An admin without approver rights cannot decide
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', false);
+do $$ begin
+  begin
+    perform decide_lost((select id from lost_approvals where status='pending' limit 1), 'approved', null);
+    raise exception 'FAIL: admin without approver rights approved Lost';
+  exception when others then
+    if sqlerrm not like 'NOT_APPROVER%' then raise; end if;
+  end;
+  begin
+    insert into lost_approvers (user_id) values ('00000000-0000-0000-0000-000000000002');
+    raise exception 'FAIL: admin granted approver rights';
+  exception when others then
+    if sqlerrm like 'FAIL%' then raise; end if;
+  end;
+  assert (select (decide_lost_bulk(array(select id from lost_approvals where status='pending'), 'approved', null) ->> 'done')::int) = 0, 'bulk skips what you may not decide';
+end $$;
+-- Super Admin grants: admin for Naaptol only
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+insert into lost_approvers (user_id, client_id, created_by) select '00000000-0000-0000-0000-000000000002', id, auth.uid() from clients where name = 'Naaptol';
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', false);
+do $$ begin
+  assert not can_approve_lost((select id from clients where name='Velocity')), 'scoped approver: not Velocity';
+  assert can_approve_lost((select id from clients where name='Naaptol')), 'scoped approver: Naaptol';
+  assert (select count(*) from v_lost_requests where status='pending' and can_decide) = 0, 'view shows nothing decidable for Velocity request';
+  begin
+    perform decide_lost((select id from lost_approvals where status='pending' limit 1), 'approved', null);
+    raise exception 'FAIL: Naaptol approver approved a Velocity case';
+  exception when others then
+    if sqlerrm not like 'NOT_APPROVER%' then raise; end if;
+  end;
+end $$;
+-- Super Admin widens it to all clients
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+insert into lost_approvers (user_id, created_by) values ('00000000-0000-0000-0000-000000000002', auth.uid());
+do $$ begin
+  assert (select count(*) from lost_approver_emails((select id from clients where name='Velocity'))) = 2, 'approver emails: super + all-client approver';
+end $$;
+
+-- ===== Admin approves (approved "today"; aging measured from 01-Aug) =====
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', false);
+do $$ begin assert (select count(*) from v_lost_requests where status='pending' and can_decide) = 1, 'approver sees request as decidable'; end $$;
 select decide_lost((select id from lost_approvals where status='pending' limit 1), 'approved', 'Confirmed with hub');
 do $$ begin
   assert (select team_status from cases where awb='R2466544662BDM') = 'lost', 'approved -> Lost';
@@ -194,6 +235,141 @@ do $$ begin
   exception when others then
     if sqlerrm like 'FAIL%' then raise; end if;
   end;
+end $$;
+reset role;
+
+-- Settings guard: report schedules only by Super Admin
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', false);
+do $$ begin
+  begin
+    update app_settings set value = '["x@y.in"]' where key = 'weekly_report_recipients';
+    raise exception 'FAIL: admin changed report recipients';
+  exception when others then if sqlerrm like 'FAIL%' then raise; end if; end;
+  update app_settings set value = '["naveed.iqbal@shadowfax.in","ops@shadowfax.in"]' where key = 'lost_request_email_to';
+  assert (select jsonb_array_length(value) from app_settings where key='lost_request_email_to') = 2, 'admin edits Lost email routing';
+  assert (select (case_stats_f(jsonb_build_object('client', (select id from clients where name='Velocity'))) ->> 'total')::int)
+       = (select count(*) from v_cases where client_display_name='Velocity'), 'filtered stats follow the client filter';
+  assert (select (case_stats_f(jsonb_build_object('q', 'R2466544662BDM r2460991811bdm')) ->> 'total')::int) = 2, 'stats follow pasted AWB list';
+  assert (weekly_report_data() -> 'summary' ->> 'loss_accepted_total')::int >= 1, 'weekly data';
+end $$;
+reset role;
+
+-- ===== Request-wise Lost: one request per client per submission =====
+insert into cases (awb, client_id, escalation_date, source_type, hub, assigned_agent)
+select x, (select id from clients where name='Velocity'), current_date - 20, 'manual', 'PWL_Palwal_FM', '00000000-0000-0000-0000-000000000003'
+from unnest(array['SF9000000001VEO','SF9000000002VEO','SF9000000003VEO']) x;
+insert into cases (awb, client_id, escalation_date, source_type, hub)
+select 'SF9000000004NAA', id, current_date - 3, 'manual', 'DEL_Mundka_FM' from clients where name='Naaptol';
+delete from notifications;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', false);
+do $$ declare r jsonb; begin
+  r := request_lost_bulk(array(select id from cases where awb like 'SF900000000%' order by awb), 'Untraceable after hub audit');
+  assert (r->>'done')::int = 4, 'bulk request: ' || r::text;
+  assert (select count(distinct request_id) from lost_approvals la join cases c on c.id = la.case_id where c.awb like 'SF900000000%') = 2,
+    'one request per client';
+  assert (select awb_count from v_lost_request_summary where client_name = 'Velocity' and status = 'pending' and awb_count = 3) = 3,
+    'request summary counts AWBs';
+  assert (select requested_by_name from lost_requests r join lost_approvals la on la.request_id = r.id join cases c on c.id = la.case_id
+          where c.awb = 'SF9000000001VEO') = 'Assem Khan', 'requester name kept on the request';
+end $$;
+reset role;
+do $$ begin
+  assert (select count(*) from notifications where user_id = '00000000-0000-0000-0000-000000000002' and type = 'lost_request') = 2,
+    'admin notified once per request, not per AWB';
+  assert (select count(*) from notifications where user_id = '00000000-0000-0000-0000-000000000003') = 0, 'requester not notified of own request';
+  assert (select count(*) from lost_requests where emailed_at is null) >= 2, 'new requests wait for their email';
+end $$;
+-- Client POC sees its own request history only
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', false);
+do $$ begin
+  assert (select count(*) from v_lost_request_summary where client_name = 'Naaptol') = 0, 'POC cannot see other clients requests';
+  assert (select count(*) from v_lost_request_summary where awb_count = 3 and pending = 3) = 1, 'POC sees the request raised for its client';
+  assert (select count(*) from lost_requests) = (select count(*) from v_lost_request_summary), 'POC request list matches';
+end $$;
+reset role;
+-- Partial decisions roll up on the request
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+do $$ declare r jsonb; v_req uuid; begin
+  select request_id into v_req from lost_approvals la join cases c on c.id = la.case_id where c.awb = 'SF9000000001VEO';
+  r := decide_lost_bulk(array(select la.id from lost_approvals la join cases c on c.id = la.case_id
+                              where c.awb in ('SF9000000001VEO','SF9000000002VEO')), 'approved', null);
+  assert (r->>'done')::int = 2, 'two accepted';
+  assert (select status || ':' || accepted || '/' || awb_count from v_lost_request_summary where id = v_req) = 'partly_decided:2/3', 'partly decided';
+  perform decide_lost((select la.id from lost_approvals la join cases c on c.id = la.case_id where c.awb = 'SF9000000003VEO'), 'rejected', 'Found at hub');
+  assert (select status from v_lost_request_summary where id = v_req) = 'partly_accepted', 'partly accepted once all decided';
+  assert (select first_accepted_at is not null from v_lost_request_summary where id = v_req), 'acceptance date on the request';
+end $$;
+reset role;
+do $$ begin
+  assert (select count(*) from notifications where user_id = '00000000-0000-0000-0000-000000000003' and title like '%loss accepted') = 1,
+    'requester gets one "loss accepted" notice per request';
+  assert (select count(*) from notifications where user_id = '00000000-0000-0000-0000-000000000003' and title like '%rejected') = 1,
+    'and one "rejected" notice';
+end $$;
+-- Loss accepted recipients are Super Admin only
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000002', false);
+do $$ begin
+  begin
+    update app_settings set value = '["x@y.in"]' where key = 'loss_accepted_email_to';
+    raise exception 'FAIL: admin changed loss accepted recipients';
+  exception when others then if sqlerrm like 'FAIL%' then raise; end if; end;
+end $$;
+reset role;
+
+-- POD focus: pending POD excludes POD shared; critical = pending POD older than the critical days
+do $$ declare s jsonb; begin
+  s := pod_stats('{}');
+  assert (s->>'pending')::int = (select count(*) from v_cases where status_category = 'open' and team_status <> 'pod_shared' and pod_status <> 'shared'), 'pending POD';
+  assert (s->>'critical')::int = (select count(*) from cases_filtered('{"category":"critical"}')), 'critical matches the list filter';
+  assert (s->>'critical')::int = (select count(*) from v_cases where status_category = 'open' and team_status <> 'pod_shared' and pod_status <> 'shared' and aging_days > 7), 'critical > 7 days';
+  assert (select sum((b->>'count')::int) from jsonb_array_elements(s->'pending_age') b) = (s->>'pending')::int, 'age buckets add up';
+  assert (s->>'pod_shared')::int + (s->>'closed')::int + (s->>'pending')::int + (s->>'lost_pending')::int + (s->>'lost')::int = (s->>'total')::int, 'every case in one box';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', false);
+do $$ begin
+  assert (pod_stats('{}')->>'total')::int = (select count(*) from v_cases), 'POC stats cover only its own cases';
+  begin
+    update app_settings set value = '["x@y.in"]' where key = 'critical_alert_email_to';
+  exception when others then null; end;
+end $$;
+reset role;
+do $$ begin
+  assert (select value::text from app_settings where key = 'critical_alert_email_to') <> '["x@y.in"]', 'POC cannot change settings';
+end $$;
+
+-- Adding pending cases: POC only for its own client, no duplicates of open shipments
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', false);
+do $$ declare r jsonb; v_vel uuid; v_naa uuid; begin
+  reset role; select id into v_vel from clients where name='Velocity'; select id into v_naa from clients where name='Naaptol'; set role authenticated;
+  r := create_pending_cases(v_vel, jsonb_build_array(
+    jsonb_build_object('row', 2, 'awb', 'sf7000000001veo', 'escalation_date', '2026-10-01', 'remark', 'from client', 'client_id', v_naa),
+    jsonb_build_object('row', 3, 'awb', 'SF7000000001VEO', 'escalation_date', '2026-10-01'),
+    jsonb_build_object('row', 4, 'awb', 'SF7000000002VEO', 'escalation_date', '2099-01-01')), true);
+  assert (r->>'created')::int = 1, 'POC adds one: ' || r::text;
+  assert jsonb_array_length(r->'skipped') = 2, 'duplicate and future date skipped';
+  assert (select client_id from cases where awb = 'SF7000000001VEO') = v_vel, 'POC rows always go to its own client';
+  assert (select client_remark from cases where awb = 'SF7000000001VEO') = 'from client', 'POC remark is a client remark';
+  begin
+    perform create_pending_cases(v_naa, '[]'::jsonb, false);
+    raise exception 'FAIL: POC added cases for another client';
+  exception when others then if sqlerrm like 'FAIL%' then raise; end if; end;
+end $$;
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000003', false);
+do $$ declare r jsonb; begin
+  r := create_pending_cases(null, jsonb_build_array(
+    jsonb_build_object('row', 2, 'awb', 'SF7000000003NAA', 'escalation_date', '2026-10-02', 'client_id', (select id from clients where name='Naaptol')),
+    jsonb_build_object('row', 3, 'awb', 'SF7000000004XXX', 'escalation_date', '2026-10-02')), false);
+  assert (r->>'created')::int = 1 and r->'skipped'->0->>'message' = 'Client missing', 'agent: per-row client, missing client reported: ' || r::text;
+  assert (select team_status || ':' || source_type from cases where awb = 'SF7000000003NAA') = 'pending:manual', 'new cases are pending';
 end $$;
 reset role;
 

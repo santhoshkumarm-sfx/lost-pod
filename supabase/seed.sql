@@ -10,7 +10,7 @@ insert into public.status_master (code, label, category, sort_order, color, is_s
   ('shipment_at_dc',        'Shipment at DC',                'open',         30, 'indigo', true, true),
   ('shipment_at_hub',       'Shipment at Hub',               'open',         40, 'violet', true, true),
   ('pod_shared',            'POD Shared',                    'open',         50, 'teal',   true, true),
-  ('lost_pending_approval', 'Lost — Pending Admin Approval', 'lost_pending', 60, 'amber',  true, false),
+  ('lost_pending_approval', 'Lost — Pending Approval', 'lost_pending', 60, 'amber',  true, false),
   ('lost',                  'Lost',                          'lost',         70, 'red',    true, false),
   ('closed',                'Closed',                        'closed',       80, 'green',  true, true)
 on conflict (code) do nothing;
@@ -29,7 +29,7 @@ insert into public.app_settings (key, value, description) values
   ('report_recipients',     '["santhoshkumar.m@shadowfax.in","naveed.iqbal@shadowfax.in","binay.sharma@shadowfax.in"]', 'Daily admin report recipients'),
   ('report_aging_order',    '"asc"',          'Top 10 aging table column order: "asc" = 1 → 10+ left to right, "desc" = 10+ → 1'),
   ('report_lost_body_days', '30',             'Approved Lost cases from the last N days are listed in the email body (all are in the attachment)'),
-  ('notify_admins_by_email','true',           'Email admins when a Lost request is raised'),
+  ('notify_admins_by_email','false',          'Send emails automatically (new Lost requests and Lost decisions). Off = no automatic emails.'),
   ('awb_patterns',          '["\\b(?:SF|R)\\d{7,16}[A-Z]{1,4}\\b"]', 'Regular expressions used to find AWBs in email text'),
   ('hub_city_codes',        '{}',             'Extra hub prefix → city mappings, e.g. {"PWL":"Palwal"}')
 on conflict (key) do nothing;

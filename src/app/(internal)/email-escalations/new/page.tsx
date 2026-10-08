@@ -4,8 +4,8 @@ import { Empty, Field, Flash, PageHeader, Panel } from '@/components/ui';
 import { requireInternal } from '@/lib/auth';
 import { errorText, param, type SearchParams } from '@/lib/flash';
 import { fmtDateTime } from '@/lib/format';
-import { googleStatus } from '@/lib/google/auth';
-import { searchThreads, type ThreadHit } from '@/lib/google/gmail';
+import { googleStatus } from '@/lib/google';
+import { searchThreads, type ThreadHit } from '@/lib/google';
 import { todayIn } from '@/lib/time';
 import { importThread, pasteEmail } from '../actions';
 
@@ -46,10 +46,10 @@ export default async function NewEmailPage({ searchParams }: { searchParams: Sea
         <>
           {!g.gmail && (
             <div className="mb-4 rounded border border-age-3/40 bg-[#FFF8EC] px-3 py-2">
-              Gmail is not connected yet. Add the Google credentials (see README → Gmail) or use “Paste an email” meanwhile.
+              Gmail is not connected yet. Add the Google credentials (see README → Google bridge) or use “Paste an email” meanwhile.
             </div>
           )}
-          <Panel title={g.mailbox ? `Search the ${g.mailbox} mailbox` : 'Search Gmail'} className="mb-5">
+          <Panel title="Search Gmail" className="mb-5">
             <form className="grid gap-3 md:grid-cols-[1fr_220px_140px_auto] md:items-end">
               <Field label="Email subject" hint="Re: and Fwd: are ignored, so the whole thread is found.">
                 <input name="subject" required defaultValue={subject} className="input" placeholder="Re: POD needed - Shadowfax - 11-09-26" />

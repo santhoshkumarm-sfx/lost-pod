@@ -35,6 +35,8 @@ export default async function CasePage({ params, searchParams }: { params: Promi
   const { data } = await supabase.from('v_cases').select('*').eq('id', id).maybeSingle();
   if (!data) notFound();
   const c = data as CaseRow;
+  const { data: approver } = await supabase.rpc('can_approve_lost', { p_client_id: c.client_id });
+  const canApprove = approver === true;
 
   const [priv, updates, comments, approvals, sources, statuses, agents, others] = await Promise.all([
     supabase.from('case_private').select('internal_remark, updated_at').eq('case_id', id).maybeSingle(),
@@ -182,7 +184,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
             {c.status_category === 'open' || c.status_category === 'closed' ? (
               <form action={requestLost} className="space-y-3">
                 <input type="hidden" name="id" value={c.id} />
-                <p className="text-ink-soft">Raising a request moves the case to “Lost — Pending Admin Approval”. It becomes Lost only when an Admin approves it.</p>
+                <p className="text-ink-soft">Raising a request moves the case to “Lost — Pending Approval”. It becomes Lost only when an approver accepts it, and the approvers are emailed.</p>
                 <Field label="Why should this shipment be declared Lost?">
                   <textarea name="reason" required className="input" />
                 </Field>
@@ -193,8 +195,9 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <p>
                   Requested by <strong>{pending.requested_via === 'google_sheet' ? 'Google Sheet' : who(pending.requested_by)}</strong> on{' '}
                   {fmtDateTime(pending.requested_at)}: “{pending.request_reason}”
+                  {pending.request_id && <> · <Link href={`/lost-approval/requests/${pending.request_id}`}>Open the whole request</Link></>}
                 </p>
-                {admin ? (
+                {canApprove ? (
                   <form action={decideLost} className="space-y-3">
                     <input type="hidden" name="approval_id" value={pending.id} />
                     <input type="hidden" name="back" value={`/cases/${c.id}`} />
@@ -208,7 +211,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                     </div>
                   </form>
                 ) : (
-                  <p className="text-ink-soft">Waiting for an Admin decision.</p>
+                  <p className="text-ink-soft">Waiting for an approver. You do not have Lost approval rights for this client.</p>
                 )}
               </div>
             ) : c.status_category === 'lost' ? (
@@ -216,7 +219,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <p>
                   Approved Lost on {fmtDateTime(c.lost_approved_at)}. Lost aging: <strong>{c.final_aging_days ?? c.aging_days} days</strong> from the escalation on {fmtDate(c.escalation_date)}.
                 </p>
-                {admin && (
+                {canApprove && (
                   <details>
                     <summary className="cursor-pointer text-signal">Take this case out of Lost (shipment found)</summary>
                     <form action={reopenLost} className="mt-3 grid gap-3 md:grid-cols-[200px_1fr_auto] md:items-end">

@@ -1,40 +1,4 @@
-/** Minimal shape of a Gmail API message part (format=full). */
-export interface GmailPart {
-  mimeType?: string | null;
-  filename?: string | null;
-  headers?: { name?: string | null; value?: string | null }[] | null;
-  body?: { data?: string | null; size?: number | null; attachmentId?: string | null } | null;
-  parts?: GmailPart[] | null;
-}
-
-export function decodeBase64Url(data: string): string {
-  return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-}
-
-export function header(part: GmailPart | undefined | null, name: string): string | null {
-  const h = part?.headers?.find((x) => x.name?.toLowerCase() === name.toLowerCase());
-  return h?.value ?? null;
-}
-
-/** Walk the MIME tree and collect the text/plain and text/html bodies (attachments are ignored). */
-export function collectBodies(part: GmailPart | undefined | null): { text: string; html: string; attachments: string[] } {
-  const out = { text: '', html: '', attachments: [] as string[] };
-  const walk = (p: GmailPart | undefined | null) => {
-    if (!p) return;
-    if (p.filename) {
-      out.attachments.push(p.filename);
-      return;
-    }
-    const type = (p.mimeType ?? '').toLowerCase();
-    if (p.body?.data && type === 'text/plain') out.text += (out.text ? '\n' : '') + decodeBase64Url(p.body.data);
-    else if (p.body?.data && type === 'text/html') out.html += (out.html ? '\n' : '') + decodeBase64Url(p.body.data);
-    p.parts?.forEach(walk);
-  };
-  walk(part);
-  return out;
-}
-
-/** "Ravi Kumar <ravi@client.com>" -> { name: "Ravi Kumar", email: "ravi@client.com" } */
+/** Email address and subject helpers for the Gmail search. */
 export function parseAddress(v: string | null): { name: string | null; email: string | null } {
   if (!v) return { name: null, email: null };
   const m = v.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);

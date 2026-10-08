@@ -2,8 +2,8 @@
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
-  // Google client libraries and ExcelJS are server-only; keep them out of the bundler.
-  serverExternalPackages: ['@googleapis/gmail', '@googleapis/sheets', 'google-auth-library', 'exceljs'],
+  // ExcelJS is server-only; keep it out of the bundler.
+  serverExternalPackages: ['exceljs'],
   experimental: {
     serverActions: { bodySizeLimit: '4mb' },
   },

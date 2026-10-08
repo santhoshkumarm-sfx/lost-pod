@@ -4,7 +4,9 @@ export interface CaseFilters {
   q: string;
   client: string;
   status: string;
-  category: string;   // open | active | lost_pending | lost | closed | all
+  category: string;   // open | active | pending_pod | critical | lost_pending | lost | closed | all
+  agemin: string;     // aging days from
+  agemax: string;     // aging days to
   aging: string;      // aging bucket label
   hub: string;
   agent: string;      // profile id | 'unassigned'
@@ -32,7 +34,7 @@ export function parseCaseFilters(sp: Record<string, string | string[] | undefine
   return {
     q: g('q'), client: g('client'), status: g('status'), category: g('category') || defaults.category || 'active',
     aging: g('aging'), hub: g('hub'), agent: g('agent'), poc: g('poc'), source: g('source'), from: g('from'), to: g('to'),
-    sla: g('sla'), reason: g('reason'),
+    sla: g('sla'), reason: g('reason'), agemin: /^\d+$/.test(g('agemin')) ? g('agemin') : '', agemax: /^\d+$/.test(g('agemax')) ? g('agemax') : '',
     sort: (SORTABLE as readonly string[]).includes(sort) ? sort : defaults.sort || 'aging_days',
     dir: g('dir') === 'asc' ? 'asc' : g('dir') === 'desc' ? 'desc' : defaults.dir || 'desc',
     page: Math.max(1, Number(g('page')) || 1),
@@ -52,7 +54,7 @@ export function awbList(q: string): string[] | null {
 
 /** Apply filters to a query on v_cases. RLS still decides which rows the user may see. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applyCaseFilters(q: any, f: CaseFilters, opts: { dateField?: 'escalation_date' | 'lost_approved_at' } = {}): any {
+export function applyCaseFilters(q: any, f: CaseFilters, opts: { dateField?: 'escalation_date' | 'lost_approved_at'; criticalDays?: number } = {}): any {
   const dateField = opts.dateField ?? 'escalation_date';
   if (f.q) {
     const list = awbList(f.q);
@@ -68,9 +70,16 @@ export function applyCaseFilters(q: any, f: CaseFilters, opts: { dateField?: 'es
   if (f.status) q = q.eq('team_status', f.status);
   if (f.category && f.category !== 'all') {
     if (f.category === 'active') q = q.in('status_category', ['open', 'lost_pending']);
-    else q = q.eq('status_category', f.category);
+    else if (f.category === 'pending_pod' || f.category === 'critical') {
+      q = q.eq('status_category', 'open').neq('team_status', 'pod_shared').neq('pod_status', 'shared');
+      if (f.category === 'critical') q = q.gt('aging_days', opts.criticalDays ?? 7);
+    } else if (f.category === 'pod_done') {
+      q = q.or('status_category.eq.closed,and(status_category.eq.open,or(team_status.eq.pod_shared,pod_status.eq.shared))');
+    } else q = q.eq('status_category', f.category);
   }
   if (f.aging) q = q.eq('aging_bucket', f.aging);
+  if (f.agemin) q = q.gte('aging_days', Number(f.agemin));
+  if (f.agemax) q = q.lte('aging_days', Number(f.agemax));
   if (f.hub) q = q.or(`hub.ilike."%${safe(f.hub)}%",location.ilike."%${safe(f.hub)}%"`);
   if (f.agent) q = f.agent === 'unassigned' ? q.is('assigned_agent', null) : q.eq('assigned_agent', f.agent);
   if (f.poc) q = q.eq('client_poc_id', f.poc);
@@ -93,4 +102,28 @@ export function filtersToQuery(f: Partial<CaseFilters>, overrides: Record<string
   }
   const s = sp.toString();
   return s ? `?${s}` : '';
+}
+
+/** Pending POD older than this is critical (Settings → critical_aging_days). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getCriticalDays(sb: any): Promise<number> {
+  const { data } = await sb.from('app_settings').select('value').eq('key', 'critical_aging_days').maybeSingle();
+  const n = Number(data?.value);
+  return Number.isInteger(n) && n > 0 ? n : 7;
+}
+
+/** The filter object the database functions (pod_stats, case_stats_f) take. */
+export function statsFilter(f: CaseFilters, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    q: f.q, client: f.client, status: f.status, category: f.category, aging: f.aging, hub: f.hub, agent: f.agent, poc: f.poc,
+    source: f.source, from: f.from, to: f.to, sla: f.sla, reason: f.reason, agemin: f.agemin, agemax: f.agemax, ...extra,
+  };
+}
+
+export interface PodStats {
+  critical_days: number; total: number; pending: number; critical: number; pod_shared: number; closed: number;
+  lost_pending: number; lost: number; new_today: number;
+  pending_age: { label: string; min: number; max: number | null; count: number }[];
+  by_client: { client_id: string | null; client: string; pending: number; critical: number; pod_shared: number; lost_pending: number; lost: number; oldest: number | null }[];
+  by_agent: { agent_id: string | null; agent: string; pending: number; critical: number; oldest: number | null }[];
 }

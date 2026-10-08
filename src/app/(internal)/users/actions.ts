@@ -42,7 +42,14 @@ export async function createUser(fd: FormData) {
       if (existing.data) must(await sb.from('client_pocs').update({ user_id: id, email }).eq('id', existing.data.id).select('id'));
       else must(await sb.from('client_pocs').insert({ client_id: clientId, name, email, user_id: id }).select('id'));
     }
-    return `${name} added. ${strOrNull(fd, 'password') ? 'Share the password securely.' : 'An invitation email was sent.'}`;
+    let rights = '';
+    const mode = str(fd, 'lost_mode') || 'none';
+    if (mode !== 'none') {
+      if (actor.role !== 'super_admin') throw new Error(`${name} was added, but only a Super Admin can give Lost approval rights.`);
+      if (role === 'client_poc') throw new Error(`${name} was added. Client POCs can request Lost but never approve it.`);
+      rights = await saveApproverRights(actor.id, id, mode, fd.getAll('lost_clients').map(String));
+    }
+    return `${name} added. ${strOrNull(fd, 'password') ? 'Share the password securely.' : 'An invitation email was sent.'}${rights ? ` ${rights}` : ''}`;
   });
 }
 
@@ -76,5 +83,28 @@ export async function resetPassword(fd: FormData) {
     assertCanManage(actor, t.id === actor.id ? null : t.id, t.role, null);
     await sendPasswordReset(t.email);
     return `Password reset email sent to ${t.email}.`;
+  });
+}
+
+/** Replaces a user's Lost approval rights. mode: none | all | clients. Only a Super Admin (enforced by the database too). */
+async function saveApproverRights(actorId: string, userId: string, mode: string, clientIds: string[]): Promise<string> {
+  const sb = await createClient();
+  const ids = [...new Set(clientIds.filter(Boolean))];
+  if (mode === 'clients' && !ids.length) throw new Error('Tick at least one client, or choose “All clients”.');
+  must(await sb.from('lost_approvers').delete().eq('user_id', userId).select('id'));
+  if (mode === 'all') must(await sb.from('lost_approvers').insert({ user_id: userId, client_id: null, created_by: actorId }).select('id'));
+  else if (mode === 'clients') must(await sb.from('lost_approvers').insert(ids.map((c) => ({ user_id: userId, client_id: c, created_by: actorId }))).select('id'));
+  return mode === 'none' ? 'Lost approval rights removed.' : mode === 'all' ? 'Can approve Lost for all clients.' : `Can approve Lost for ${ids.length} client${ids.length === 1 ? '' : 's'}.`;
+}
+
+export async function setApprover(fd: FormData) {
+  const actor = await requireAdmin();
+  await done(async () => {
+    if (actor.role !== 'super_admin') throw new Error('Only a Super Admin can change who approves Lost.');
+    const t = await target(str(fd, 'id'));
+    if (t.role === 'client_poc') throw new Error('Client POCs can request Lost but never approve it.');
+    if (t.role === 'super_admin') throw new Error('Super Admins can always approve Lost.');
+    const msg = await saveApproverRights(actor.id, t.id, str(fd, 'lost_mode') || 'none', fd.getAll('lost_clients').map(String));
+    return `${t.full_name ?? t.email}: ${msg}`;
   });
 }

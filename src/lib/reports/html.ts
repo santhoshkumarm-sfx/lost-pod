@@ -135,7 +135,7 @@ ${h2('Aging-wise', 'Open cases in each aging bucket.')}
 ${agingWise}
 ${h2(`Approved Lost — last ${o.lostDays} days`, `Lost aging is counted from the original escalation date to the approval date. ${fmtNum(d.lost_total)} Lost cases in total (all are in the attachment).`)}
 ${lost}
-${h2('Waiting for Lost approval', `${fmtNum(d.pending_lost_total)} request(s). These stay open until an Admin approves, rejects or sends them back.`)}
+${h2('Waiting for Lost approval', `${fmtNum(d.pending_lost_total)} request(s). These stay open until an approver accepts, rejects or sends them back.`)}
 ${pending}
 <div style="margin-top:20px;padding:10px 12px;background:#F3F4F1;border:1px solid ${LINE};font-size:12px;color:${SOFT}">
 ${o.attachmentName ? `Attached: <strong style="color:${INK}">${esc(o.attachmentName)}</strong> — every case with source, aging, status, hub and remarks, plus the tables above.<br>` : ''}

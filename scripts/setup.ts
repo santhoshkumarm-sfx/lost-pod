@@ -9,7 +9,7 @@
  * values, the admin is created once, and Vercel variables are upserted.
  */
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'dotenv';
@@ -52,22 +52,6 @@ function loadInputs() {
   if (!get('ADMIN_EMAIL').includes('@') || !get('ADMIN_NAME')) fail('ADMIN_EMAIL and ADMIN_NAME are required.');
   if (get('ADMIN_PASSWORD') && get('ADMIN_PASSWORD').length < 10) fail('ADMIN_PASSWORD needs at least 10 characters (or leave it empty for an invite).');
 
-  let sa: { email: string; key: string; clientId: string } | null = null;
-  const saPath = get('GOOGLE_SERVICE_ACCOUNT_JSON');
-  if (saPath) {
-    const p = path.resolve(ROOT, saPath);
-    if (!existsSync(p)) {
-      if (path.basename(saPath) !== 'google-key.json') warn(`Google key file not found at ${saPath} — service-account steps skipped.`);
-    } else {
-      try {
-        const j = JSON.parse(readFileSync(p, 'utf8'));
-        if (!j.client_email || !j.private_key) throw new Error('missing client_email / private_key');
-        sa = { email: j.client_email, key: j.private_key, clientId: String(j.client_id ?? '') };
-      } catch (e) {
-        fail(`${saPath} is not a service-account JSON key (${(e as Error).message}).`);
-      }
-    }
-  }
   const bridgeUrl = get('GOOGLE_BRIDGE_URL');
   if (bridgeUrl && !process.env.SETUP_ALLOW_ANY_BRIDGE_URL && !/^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[\w-]+\/exec\/?$/.test(bridgeUrl)) {
     fail('GOOGLE_BRIDGE_URL must be the Apps Script web app URL ending in /exec (Deploy → Manage deployments → Web app URL).');
@@ -78,10 +62,7 @@ function loadInputs() {
     ref,
     token: get('SUPABASE_ACCESS_TOKEN'),
     admin: { email: get('ADMIN_EMAIL'), name: get('ADMIN_NAME'), password: get('ADMIN_PASSWORD') || null },
-    sa,
     bridge: { url: bridgeUrl, secret: get('GOOGLE_BRIDGE_SECRET') },
-    gmailUser: get('GMAIL_IMPERSONATE_USER'),
-    gmailSender: get('GMAIL_SENDER') || get('GMAIL_IMPERSONATE_USER'),
     vercel: {
       token: get('VERCEL_TOKEN'),
       project: get('VERCEL_PROJECT_NAME') || 'lost-pod-dashboard',
@@ -126,12 +107,9 @@ function supabaseApi(inp: Inputs) {
   };
 }
 
-// Recognises migrations that were run by hand in the SQL editor before this script existed.
+// The base schema may already exist (applied by hand, or by the older one-file-per-change setup).
 const ALREADY_APPLIED: Record<string, string> = {
-  '20260901000000_schema.sql': `select to_regclass('public.cases') is not null as ok`,
-  '20260901000100_functions.sql': `select exists (select 1 from pg_proc where proname = 'import_sheet_rows') as ok`,
-  '20260901000200_rls.sql': `select exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'cases' and policyname = 'cases_read') as ok`,
-  '20260901000300_email_cases.sql': `select exists (select 1 from pg_proc where proname = 'create_email_cases') as ok`,
+  '0001_base.sql': `select exists (select 1 from pg_proc where proname = 'create_email_cases') as ok`,
 };
 
 async function runMigrations(api: ReturnType<typeof supabaseApi>) {
@@ -142,7 +120,11 @@ revoke all on public.app_migrations from anon, authenticated;`);
   const dir = path.join(ROOT, 'supabase', 'migrations');
   const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
   for (const f of files) {
-    if (done.has(f)) {
+    const body = readFileSync(path.join(dir, f), 'utf8');
+    // Files that say "Safe to run again" are re-applied whenever their content changes.
+    const rerunnable = body.includes('Safe to run again');
+    const key = rerunnable ? `${f}#${createHash('sha1').update(body).digest('hex').slice(0, 10)}` : f;
+    if (done.has(key)) {
       info(`${f} — already applied`);
       continue;
     }
@@ -154,9 +136,8 @@ revoke all on public.app_migrations from anon, authenticated;`);
         continue;
       }
     }
-    const body = readFileSync(path.join(dir, f), 'utf8');
     // One request = one implicit transaction: a failing file leaves nothing half-applied.
-    await api.sql(`${body}\n;\ninsert into public.app_migrations (name) values ('${f}');`);
+    await api.sql(`${body}\n;\ninsert into public.app_migrations (name) values ('${key}') on conflict do nothing;`);
     ok(`${f} applied`);
   }
   await api.sql(readFileSync(path.join(ROOT, 'supabase', 'seed.sql'), 'utf8'));
@@ -301,12 +282,13 @@ async function deployToVercel(inp: Inputs, env: Record<string, string>): Promise
     info('Building and deploying (2–4 minutes)…');
     let d = runVercelDeploy(inp, ids);
     if (!d.ok && /cron/i.test(d.output) && /hobby|daily|once per day|plan/i.test(d.output)) {
-      // Vercel Hobby only allows daily crons: run the tracker sync once a day instead of every 30 minutes.
+      // Vercel Hobby only allows daily crons: tracker sync once a day (07:30 IST), report scheduler once a day (09:00 IST).
       hobbyCron = true;
       const cfg = JSON.parse(original);
-      cfg.crons = cfg.crons.map((x: { path: string; schedule: string }) => (x.path.includes('sync-sheets') ? { ...x, schedule: '0 2 * * *' } : x));
+      cfg.crons = cfg.crons.map((x: { path: string; schedule: string }) =>
+        x.path.includes('sync-sheets') ? { ...x, schedule: '0 2 * * *' } : /^\d+ \d+ /.test(x.schedule) ? x : { ...x, schedule: '30 3 * * *' });
       writeFileSync(vercelJson, JSON.stringify(cfg, null, 2) + '\n');
-      warn('Your Vercel plan only allows daily scheduled jobs: tracker sync set to once a day (07:30 IST). Upgrade to Pro for every 30 minutes.');
+      warn('Your Vercel plan only allows daily scheduled jobs: tracker sync once a day (07:30 IST), reports checked once a day (09:00 IST). Upgrade to Pro for every 30 minutes / hourly.');
       d = runVercelDeploy(inp, ids);
     }
     if (!d.ok) {
@@ -343,24 +325,24 @@ async function deployToVercel(inp: Inputs, env: Record<string, string>): Promise
 async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string): Promise<{ sheets: boolean; gmail: boolean }> {
   const res = { sheets: false, gmail: false };
   const useBridge = !!inp.bridge.url;
-  let readerEmail = inp.sa?.email ?? '';
+  let readerEmail = '';
   if (useBridge) {
-    const { callBridge } = await import('../src/lib/google/bridge');
+    const { callBridge } = await import('../src/lib/google');
     try {
       const p = await callBridge<{ email: string }>('ping', {}, 60_000);
       readerEmail = p.email;
       ok(`Google bridge is running as ${p.email}`);
     } catch (e) {
       warn(`Google bridge: ${(e as Error).message}`);
-      todo.push(`Fix the Google bridge (SETUP.md, part B): check the Web app URL and that the BRIDGE_SECRET script property is exactly:\n      ${inp.bridge.secret}`);
+      todo.push(`Fix the Google bridge (README, Google bridge): check the Web app URL and that the BRIDGE_SECRET script property is exactly:\n      ${inp.bridge.secret}`);
       return res;
     }
-  } else if (!inp.sa) {
+  } else {
     warn('No Google connection yet — skipping Sheets and Gmail.');
-    todo.push(`Install the Google bridge in Apps Script (SETUP.md, part B). Use this value for the BRIDGE_SECRET script property:\n      ${inp.bridge.secret}\n   then put the Web app URL in setup.env as GOOGLE_BRIDGE_URL and run \`npm run setup\` again.`);
+    todo.push(`Install the Google bridge in Apps Script (README, Google bridge). Use this value for the BRIDGE_SECRET script property:\n      ${inp.bridge.secret}\n   then put the Web app URL in setup.env as GOOGLE_BRIDGE_URL and run \`npm run setup\` again.`);
     return res;
   }
-  const { getWorkbook } = await import('../src/lib/google/sheets');
+  const { getWorkbook } = await import('../src/lib/google');
   const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
   const { data } = await sb.from('sheet_sources').select('workbook_id, workbook_name').eq('is_active', true);
   const books = [...new Map((data ?? []).map((r) => [r.workbook_id as string, r.workbook_name as string])).entries()];
@@ -372,53 +354,22 @@ async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string)
       res.sheets = true;
     } catch (e) {
       const msg = (e as Error).message ?? '';
-      if (/disabled|has not been used|not enabled/i.test(msg)) {
-        warn('Google Sheets API is not enabled in the Google Cloud project.');
-        todo.push('Enable the Google Sheets API in Google Cloud (APIs & Services → Library), then run setup again.');
-        break;
-      }
-      unshared.push(`${name}  https://docs.google.com/spreadsheets/d/${id}`);
+        unshared.push(`${name}  https://docs.google.com/spreadsheets/d/${id}`);
       warn(`Sheets: cannot read "${name}" (${msg.split('\n')[0].slice(0, 120)})`);
     }
   }
   if (unshared.length) {
-    todo.push(`${useBridge ? `Make sure ${readerEmail} can open these workbooks (ask the owner to share them)` : `Share these workbooks with ${readerEmail} as Viewer`}, then run setup again:\n      - ${unshared.join('\n      - ')}`);
+    todo.push(`Make sure ${readerEmail} can open these workbooks (ask the owner to share them), then run setup again:\n      - ${unshared.join('\n      - ')}`);
   }
 
-  if (useBridge) {
-    try {
-      const { callBridge } = await import('../src/lib/google/bridge');
-      await callBridge('searchThreads', { query: 'newer_than:2d', max: 1 }, 60_000);
-      ok(`Gmail: can search ${readerEmail}'s mailbox; the daily report will be sent from it`);
-      res.gmail = true;
-    } catch (e) {
-      warn(`Gmail via bridge: ${(e as Error).message}`);
-      todo.push('Open the Apps Script project, run any function once (or redeploy) and accept the Gmail permission, then run setup again.');
-    }
-    return res;
-  }
-  if (!inp.gmailUser) {
-    warn('GMAIL_IMPERSONATE_USER is empty — skipping Gmail.');
-    todo.push('Set GMAIL_IMPERSONATE_USER in setup.env (the escalations mailbox) and run setup again.');
-    return res;
-  }
   try {
-    const { gmail } = await import('@googleapis/gmail');
-    const { googleAuth, SCOPES } = await import('../src/lib/google/auth');
-    const g = gmail({ version: 'v1', auth: googleAuth(SCOPES.gmailRead, 'gmail') });
-    const p = await g.users.getProfile({ userId: 'me' });
-    ok(`Gmail: connected to ${p.data.emailAddress} (${p.data.messagesTotal ?? '?'} messages)`);
+    const { callBridge } = await import('../src/lib/google');
+    await callBridge('searchThreads', { query: 'newer_than:2d', max: 1 }, 60_000);
+    ok(`Gmail: can search ${readerEmail}'s mailbox; emails are sent from it`);
     res.gmail = true;
   } catch (e) {
-    const msg = String((e as Error).message ?? e);
-    warn(`Gmail: not connected yet (${msg.split('\n')[0].slice(0, 140)})`);
-    if (/unauthorized_client|delegation|not authorized/i.test(msg)) {
-      todo.push(`Turn on domain-wide delegation for client ID ${inp.sa?.clientId || '(client_id in the key file)'} (SETUP.md, part C). It can take up to an hour to apply; then run setup again.`);
-    } else if (/disabled|not been used|not enabled/i.test(msg)) {
-      todo.push('Enable the Gmail API in Google Cloud (APIs & Services → Library), then run setup again.');
-    } else {
-      todo.push('Gmail could not be reached; check GMAIL_IMPERSONATE_USER and domain-wide delegation (SETUP.md, part C).');
-    }
+    warn(`Gmail via bridge: ${(e as Error).message}`);
+    todo.push('Open the Apps Script project, run any function once (or redeploy) and accept the Gmail permission, then run setup again.');
   }
   return res;
 }
@@ -465,9 +416,6 @@ async function main() {
     SUPABASE_SERVICE_ROLE_KEY: keys.service,
     CRON_SECRET: previous.CRON_SECRET || randomBytes(24).toString('hex'),
     ...(inp.bridge.url ? { GOOGLE_BRIDGE_URL: inp.bridge.url, GOOGLE_BRIDGE_SECRET: inp.bridge.secret } : {}),
-    ...(inp.sa && !inp.bridge.url ? { GOOGLE_SERVICE_ACCOUNT_EMAIL: inp.sa.email, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: inp.sa.key } : {}),
-    ...(inp.gmailUser ? { GMAIL_IMPERSONATE_USER: inp.gmailUser } : {}),
-    ...(inp.gmailSender ? { GMAIL_SENDER: inp.gmailSender } : {}),
   };
   Object.assign(process.env, env, { NEXT_PUBLIC_SITE_URL: provisionalSite });
 

@@ -34,10 +34,10 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
       </div>
       <Flash sp={sp} />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Kpi label="Open" value={s.open} href={`/cases?client=${id}`} />
-        <Kpi label="TAT breached" value={s.sla_breached} tone={s.sla_breached ? 'alert' : undefined} href={`/cases?client=${id}&sla=1`} />
+        <Kpi label="Open" value={s.open} href={`/cases?client=${id}&category=active`} />
+        <Kpi label="TAT breached" value={s.sla_breached} tone={s.sla_breached ? 'alert' : undefined} href={`/cases?client=${id}&sla=1&category=active`} />
         <Kpi label="Awaiting Lost approval" value={n('lost_pending_approval')} href="/lost-approval" />
-        <Kpi label="Lost" value={n('lost')} href={`/lost?client=${id}`} />
+        <Kpi label="Lost" value={n('lost')} href={`/cases?client=${id}&category=lost`} />
         <Kpi label="All cases" value={s.total} href={`/cases?client=${id}&category=all`} />
       </div>
       <Panel title="Open cases by aging" className="mb-5">

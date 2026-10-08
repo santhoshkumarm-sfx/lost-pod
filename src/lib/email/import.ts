@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getThread } from '../google/gmail';
+import { getThread } from '../google';
 import { loadImportConfig } from '../importer/config';
 import { extractFromThread, htmlToText, type EmailMessageInput } from './extract';
 import { parseAddress } from './mime';

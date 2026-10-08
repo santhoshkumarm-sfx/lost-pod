@@ -52,3 +52,10 @@ export const SOURCE_LABELS: Record<string, string> = { google_sheet: 'Google She
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${fmtNum(n)} ${n === 1 ? one : many}`;
 }
+
+/** What a client sees: the Lost workflow in their words. */
+export function clientStatusLabel(category: string | null | undefined, label: string): string {
+  if (category === 'lost') return 'Loss accepted';
+  if (category === 'lost_pending') return 'Loss requested — under review';
+  return label;
+}

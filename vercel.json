@@ -10,7 +10,7 @@
       "schedule": "0 2 * * *"
     },
     {
-      "path": "/api/cron/daily-report",
+      "path": "/api/cron/reports",
       "schedule": "30 3 * * *"
     }
   ],

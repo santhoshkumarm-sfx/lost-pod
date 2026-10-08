@@ -4,7 +4,7 @@ import { Field, Flash, PageHeader, Panel } from '@/components/ui';
 import { isAdminRole, requireInternal } from '@/lib/auth';
 import type { SearchParams } from '@/lib/flash';
 import { fmtDateTime, fmtNum } from '@/lib/format';
-import { googleStatus } from '@/lib/google/auth';
+import { googleStatus } from '@/lib/google';
 import { getClients } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 import { addWorkbook, syncNow, toggleSource } from './actions';
@@ -19,11 +19,13 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
   const admin = isAdminRole(user.role);
   const sp = await searchParams;
   const supabase = await createClient();
-  const [sourcesRes, runsRes, clients] = await Promise.all([
+  const [sourcesRes, runsRes, clients, statsRes] = await Promise.all([
     supabase.from('sheet_sources').select('*, clients(name)').order('workbook_name').order('sheet_name'),
     supabase.from('sync_runs').select('*, sheet_sources(workbook_name, sheet_name)').order('started_at', { ascending: false }).limit(15),
     getClients(supabase),
+    supabase.rpc('case_stats_f', { p: { category: 'all' } }),
   ]);
+  const caseCount = new Map(((statsRes.data?.by_client ?? []) as { client_id: string | null; total: number }[]).map((c) => [c.client_id ?? 'none', c.total]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sources = (sourcesRes.data ?? []) as any[];
   const byWorkbook = new Map<string, typeof sources>();
@@ -44,9 +46,42 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
       <Flash sp={sp} />
       {!g.sheets && (
         <div className="mb-4 rounded border border-age-3/40 bg-[#FFF8EC] px-3 py-2">
-          Google Sheets is not connected. Add the service account credentials (README → Google) and share each workbook with the service account email.
+          Google Sheets is not connected. Install the Google bridge (README → Google bridge) and run setup again.
         </div>
       )}
+      <Panel title="Is every client coming in?" className="mb-5" bodyClass="tbl-wrap">
+        <table className="tbl">
+          <thead>
+            <tr><th>Client</th><th className="text-right">Cases in the dashboard</th><th className="text-right">Tabs on</th><th className="text-right">Synced OK</th><th className="text-right">Failed</th><th className="text-right">Not finished yet</th><th>Last problem</th></tr>
+          </thead>
+          <tbody>
+            {[...clients.map((c) => ({ id: c.id as string | null, name: c.name })), { id: null, name: 'Client read from a column' }].map((c) => {
+              const tabs = sources.filter((t) => t.is_active && t.mode === 'cases' && (t.default_client_id ?? null) === c.id);
+              const ok = tabs.filter((t) => t.last_sync_status === 'success' || t.last_sync_status === 'partial').length;
+              const failed = tabs.filter((t) => t.last_sync_status === 'failed');
+              const never = tabs.filter((t) => !t.last_synced_at || t.last_sync_status === 'running').length;
+              const cases = caseCount.get(c.id ?? 'none') ?? 0;
+              if (!c.id && !tabs.length && !cases) return null;
+              const bad = (tabs.length > 0 && cases === 0) || failed.length > 0 || never > 0;
+              return (
+                <tr key={c.id ?? 'none'} className={bad ? 'bg-[#FFF8EC]' : ''}>
+                  <td>{c.name}</td>
+                  <td className={`text-right ${tabs.length && !cases ? 'font-semibold text-age-5' : ''}`}>{fmtNum(cases)}</td>
+                  <td className="text-right">{tabs.length}</td>
+                  <td className="text-right">{ok}</td>
+                  <td className={`text-right ${failed.length ? 'font-semibold text-age-5' : ''}`}>{failed.length}</td>
+                  <td className={`text-right ${never ? 'font-semibold text-age-3' : ''}`}>{never}</td>
+                  <td className="max-w-[420px] text-xs text-ink-soft">{failed[0] ? `${failed[0].sheet_name}: ${failed[0].last_sync_message ?? ''}` : !tabs.length ? 'No tracker tab switched on for this client' : never ? 'Not reached yet — press “Sync all active tabs” again' : ''}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="px-4 py-2 text-xs text-ink-soft">
+          Each sync works for about 4 minutes and continues with the oldest tabs next time. For the first full import, run <code>npm run sync:sheets</code> in the Codespace terminal (no time limit).
+          “Failed” usually means the tracker is not shared with the Google account that runs the bridge.
+        </p>
+      </Panel>
       <div className="mb-4 flex justify-end">
         <Link href="/imports/mappings" className="btn btn-sm">Header and status wording</Link>
       </div>

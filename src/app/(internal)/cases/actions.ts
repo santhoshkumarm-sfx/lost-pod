@@ -2,11 +2,14 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { isAdminRole, requireAdmin, requireInternal } from '@/lib/auth';
+import { requestLostForCases, type LostBulkResult } from '@/lib/lost';
+import { applyLostFilters, applyRequestFilters, lostFiltersFromForm } from '@/lib/cases/lost-filters';
+import { requestIdsForAwbSearch } from '@/lib/lost';
 import { errorText, must, numOrNull, str, strOrNull, withFlash } from '@/lib/flash';
 import { cleanAwb } from '@/lib/normalize/awb';
 import { createClient } from '@/lib/supabase/server';
 import { todayIn } from '@/lib/time';
-import { notifyAdminsByEmail } from '@/lib/notify';
+import { emailLostDecision } from '@/lib/notify';
 
 async function run(back: string, fn: () => Promise<string | void>): Promise<never> {
   let msg: string | void;
@@ -83,38 +86,60 @@ export async function addComment(fd: FormData) {
   });
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 export async function requestLost(fd: FormData) {
-  await requireInternal();
+  const user = await requireInternal();
   const id = str(fd, 'id');
-  await run(`/cases/${id}`, async () => {
-    const sb = await createClient();
-    const { error } = await sb.rpc('request_lost', { p_case_id: id, p_reason: str(fd, 'reason') });
-    if (error) throw error;
-    await notifyAdminsByEmail(id, str(fd, 'reason'));
-    return 'Lost request sent to Admin for approval.';
-  });
+  await run(`/cases/${id}`, () => requestLostForCases(user, [id], str(fd, 'reason'), 'the Shadowfax dashboard'));
 }
 
+/** Approve / reject / send back. Selected rows, or every pending request matching the page filters. */
 export async function decideLost(fd: FormData) {
-  await requireAdmin();
+  const user = await requireInternal();
   const back = str(fd, 'back') || '/lost-approval';
   await run(back, async () => {
     const sb = await createClient();
     const decision = str(fd, 'decision');
-    const ids = fd.getAll('approval_id').map(String).filter(Boolean);
-    if (!ids.length) throw new Error('Select at least one request.');
-    if (decision !== 'approved' && !str(fd, 'note')) throw new Error('Add a note explaining the rejection or what to investigate.');
-    const { error } = ids.length === 1
-      ? await sb.rpc('decide_lost', { p_approval_id: ids[0], p_decision: decision, p_note: strOrNull(fd, 'note') })
-      : await sb.rpc('decide_lost_bulk', { p_approval_ids: ids, p_decision: decision, p_note: strOrNull(fd, 'note') });
+    if (!['approved', 'rejected', 'sent_back'].includes(decision)) throw new Error('Choose Approve, Reject or Send back.');
+    const note = strOrNull(fd, 'note');
+    if (decision !== 'approved' && !note) throw new Error('Add a note explaining the rejection or what to investigate.');
+    let ids = fd.getAll('approval_id').map(String).filter(Boolean);
+    let requestIds = fd.getAll('request_id').map(String).filter(Boolean);
+    const f = lostFiltersFromForm(fd);
+    if (str(fd, 'scope') === 'all') {
+      if (f.view === 'awb') {
+        const rows = must(await applyLostFilters(sb.from('v_lost_requests').select('id').eq('status', 'pending').eq('can_decide', true), f)
+          .order('requested_at').limit(2000)) as { id: string }[];
+        ids = rows.map((r) => r.id);
+      } else {
+        requestIds = (must(await applyRequestFilters(sb.from('v_lost_request_summary').select('id').eq('can_decide', true), { ...f, state: '' },
+          await requestIdsForAwbSearch(sb, f.q)).limit(500)) as { id: string }[]).map((r) => r.id);
+      }
+      if (!ids.length && !requestIds.length) throw new Error('No requests you can decide match these filters.');
+    }
+    if (requestIds.length) {
+      for (let i = 0; i < requestIds.length; i += 100) {
+        const rows = must(await sb.from('v_lost_requests').select('id').in('request_id', requestIds.slice(i, i + 100))
+          .eq('status', 'pending').eq('can_decide', true).limit(5000)) as { id: string }[];
+        ids.push(...rows.map((r) => r.id));
+      }
+      ids = [...new Set(ids)];
+      if (!ids.length) throw new Error('Nothing in the chosen requests is waiting for you to decide.');
+    }
+    if (!ids.length) throw new Error('Select at least one request, or choose “All matching the filters”.');
+    const { data, error } = await sb.rpc('decide_lost_bulk', { p_approval_ids: ids, p_decision: decision, p_note: note });
     if (error) throw error;
-    const verb = decision === 'approved' ? 'approved — marked Lost' : decision === 'rejected' ? 'rejected' : 'sent back for investigation';
-    return `${ids.length} request${ids.length === 1 ? '' : 's'} ${verb}.`;
+    const r = data as LostBulkResult;
+    if (!r.done) throw new Error(r.first_error ?? 'Nothing was decided.');
+    await emailLostDecision(r.done_ids, decision, note, user.full_name ?? user.email);
+    const verb = decision === 'approved' ? 'loss accepted (marked Lost)' : decision === 'rejected' ? 'rejected' : 'sent back for investigation';
+    return `${plural(r.done, 'AWB')}: ${verb}.${r.skipped ? ` ${r.skipped} skipped: ${r.first_error}` : ''}`;
   });
 }
 
 export async function reopenLost(fd: FormData) {
-  await requireAdmin();
+  await requireInternal();
   const id = str(fd, 'id');
   await run(`/cases/${id}`, async () => {
     const sb = await createClient();
@@ -162,6 +187,7 @@ export async function bulkUpdate(fd: FormData) {
       if (error) throw error;
       return `${count ?? 0} case(s) updated. Cases in the Lost workflow were skipped.`;
     }
+    if (action === 'request_lost') return requestLostForCases(user, ids, str(fd, 'bulk_reason'), 'the Shadowfax dashboard');
     throw new Error('Choose a bulk action.');
   });
 }

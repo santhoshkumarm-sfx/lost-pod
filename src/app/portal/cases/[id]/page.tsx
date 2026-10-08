@@ -4,7 +4,7 @@ import { SubmitButton } from '@/components/buttons';
 import { Aging, Field, Flash, Panel, StatusBadge } from '@/components/ui';
 import { requirePoc } from '@/lib/auth';
 import type { SearchParams } from '@/lib/flash';
-import { fmtDate, fmtDateTime } from '@/lib/format';
+import { fmtDate, fmtDateTime, clientStatusLabel } from '@/lib/format';
 import { getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 import { pocComment, pocRequestLost } from '../../actions';
@@ -15,7 +15,7 @@ const FIELD_NAMES: Record<string, string> = {
   team_status: 'Status', pod_status: 'POD status', pod_link: 'POD link', team_remark: 'Shadowfax update', client_remark: 'Your remark', closure_date: 'Closed on',
 };
 const ACTIONS: Record<string, string> = {
-  created: 'Escalation registered', lost_requested: 'Lost requested', lost_approved: 'Lost approved', lost_rejected: 'Lost request rejected',
+  created: 'Escalation registered', lost_requested: 'Lost requested', lost_approved: 'Loss accepted', lost_rejected: 'Lost request rejected',
   lost_sent_back: 'Lost request sent back for investigation', lost_reopened: 'Shipment taken out of Lost',
 };
 
@@ -47,7 +47,7 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
       <div className="mb-5">
         <h1 className="awb text-2xl font-medium">{c.awb}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <StatusBadge label={c.status_label} color={c.status_color} />
+          <StatusBadge label={clientStatusLabel(c.status_category, c.status_label)} color={c.status_color} />
           <Aging days={c.aging_days} final={c.status_category === 'closed' || c.status_category === 'lost'} />
           <span className="text-ink-soft">Escalated {fmtDate(c.escalation_date)}</span>
         </div>
@@ -96,7 +96,7 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
             ) : c.status_category === 'lost_pending' ? (
               <p>Your Lost request is being reviewed by Shadowfax.</p>
             ) : c.status_category === 'lost' ? (
-              <p>Declared Lost on {fmtDateTime(c.lost_approved_at)}, {c.final_aging_days ?? c.aging_days} days after escalation.</p>
+              <p>Loss accepted on {fmtDateTime(c.lost_approved_at)}, {c.final_aging_days ?? c.aging_days} days after escalation.</p>
             ) : (
               <p className="text-ink-soft">This escalation is closed.</p>
             )}
