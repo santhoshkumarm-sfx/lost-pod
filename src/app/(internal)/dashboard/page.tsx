@@ -252,18 +252,17 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   const mine = mineRes.data as PodStats | null;
   const base = { q: f.q, client: f.client, agent: f.agent, hub: f.hub, source: f.source, from: f.from, to: f.to, poc: f.poc };
   const cases = (extra: Record<string, string | null>) => `/cases${filtersToQuery({ ...base, sort: 'aging_days', dir: 'desc' } as never, extra)}`;
-  const ageHref = (i: number, extra: Record<string, string | null> = {}) => {
-    const b = s.pending_age[i];
-    return cases({ category: 'pending_pod', agemin: String(b.min), agemax: b.max === null ? null : String(b.max), ...extra });
-  };
+  const rangeHref = (b: { min: number; max: number | null }, extra: Record<string, string | null> = {}) =>
+    cases({ category: 'pending_pod', agemin: String(b.min), agemax: b.max === null ? null : String(b.max), ...extra });
   const tileHref = (k: string) =>
     k === 'pending' ? cases({ category: 'pending_pod' }) : k === 'critical' ? cases({ category: 'critical' })
       : k === 'shared' ? cases({ category: 'pod_done' }) : k === 'lost_pending' ? `/lost-approval${f.client ? `?client=${f.client}` : ''}`
         : cases({ category: 'lost' });
-  const ageCols = s.pending_age.map((b) => ({ label: `${b.label} days`, alert: b.min > s.critical_days }));
+  const weekCols = s.week_days.map((b) => ({ label: b.label === '1' ? '1 day' : `${b.label} days` }));
+  const ageCols = s.pending_age.map((b) => ({ label: `${b.label} days` }));
   const clientKey = (id: string | null) => id ?? 'none';
   const statusCols = [
-    { label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)`, alert: true }, { label: 'POD shared / closed' },
+    { label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)` }, { label: 'POD shared / closed' },
     { label: 'Loss requested' }, { label: 'Loss accepted' },
   ];
   const statusCats = ['pending_pod', 'critical', 'pod_done', 'lost_pending', 'lost'];
@@ -296,16 +295,30 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       <PodTiles s={s} href={tileHref} />
 
       <PivotTable
-        title="Pending POD — client × days since escalation"
-        note={`Shaded columns are critical (more than ${s.critical_days} days).`}
+        title="Pending POD — first week, day by day"
+        note="Shipments escalated in the last 7 days that still need a POD. 1 day includes those escalated today."
+        rowHeader="Client"
+        columns={weekCols}
+        rows={s.by_client.filter((c) => c.week.some((v) => v > 0)).map((c) => ({
+          label: c.client,
+          href: rangeHref({ min: 0, max: 7 }, { client: clientKey(c.client_id) }),
+          cells: c.week.map((v, i) => ({ value: v, href: rangeHref(s.week_days[i], { client: clientKey(c.client_id) }) })),
+        }))}
+        columnHref={(i) => rangeHref(s.week_days[i])}
+        totalHref={rangeHref({ min: 0, max: 7 })}
+      />
+
+      <PivotTable
+        title="Pending POD — by age"
+        note={`All shipments that still need a POD. Over ${s.critical_days} days is critical.`}
         rowHeader="Client"
         columns={ageCols}
         rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
           label: c.client,
           href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
-          cells: c.age.map((v, i) => ({ value: v, href: ageHref(i, { client: clientKey(c.client_id) }) })),
+          cells: c.age.map((v, i) => ({ value: v, href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
         }))}
-        columnHref={(i) => ageHref(i)}
+        columnHref={(i) => rangeHref(s.pending_age[i])}
         totalHref={cases({ category: 'pending_pod' })}
       />
 
@@ -329,15 +342,15 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
       {user.role !== 'client_poc' && (
         <PivotTable
-          title="Pending POD — agent × days since escalation"
+          title="Pending POD — agent × age"
           rowHeader="Agent"
           columns={ageCols}
           rows={s.by_agent.map((a) => ({
             label: a.agent,
             href: cases({ agent: a.agent_id ?? 'unassigned', category: 'pending_pod' }),
-            cells: a.age.map((v, i) => ({ value: v, href: ageHref(i, { agent: a.agent_id ?? 'unassigned' }) })),
+            cells: a.age.map((v, i) => ({ value: v, href: rangeHref(s.pending_age[i], { agent: a.agent_id ?? 'unassigned' }) })),
           }))}
-          columnHref={(i) => ageHref(i)}
+          columnHref={(i) => rangeHref(s.pending_age[i])}
           totalHref={cases({ category: 'pending_pod' })}
         />
       )}

@@ -64,9 +64,9 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
       />
       <PivotTable
         title="Pending POD by days since you escalated"
-        note={`${filtered ? 'Counts follow your search. ' : ''}Shaded columns (over ${s.critical_days} days) are being chased first.`}
+        note={`${filtered ? 'Counts follow your search. ' : ''}Over ${s.critical_days} days is critical — these are chased first.`}
         rowHeader="Client"
-        columns={s.pending_age.map((b) => ({ label: `${b.label} days`, alert: b.min > s.critical_days }))}
+        columns={s.pending_age.map((b) => ({ label: `${b.label} days` }))}
         rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
           label: c.client,
           cells: c.age.map((v, i) => ({ value: v, href: href({ category: 'pending_pod', agemin: String(s.pending_age[i].min), agemax: s.pending_age[i].max === null ? null : String(s.pending_age[i].max), aging: null, status: null, page: 1 }) })),

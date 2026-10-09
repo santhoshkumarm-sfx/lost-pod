@@ -124,6 +124,7 @@ export interface PodStats {
   critical_days: number; total: number; pending: number; critical: number; pod_shared: number; closed: number;
   lost_pending: number; lost: number; new_today: number;
   pending_age: { label: string; min: number; max: number | null; count: number }[];
-  by_client: { client_id: string | null; client: string; total: number; age: number[]; pending: number; critical: number; pod_shared: number; lost_pending: number; lost: number; oldest: number | null }[];
+  week_days: { label: string; min: number; max: number | null; count: number }[];
+  by_client: { client_id: string | null; client: string; total: number; age: number[]; week: number[]; pending: number; critical: number; pod_shared: number; lost_pending: number; lost: number; oldest: number | null }[];
   by_agent: { agent_id: string | null; agent: string; pending: number; critical: number; oldest: number | null; age: number[] }[];
 }
