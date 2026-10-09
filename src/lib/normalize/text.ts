@@ -1,7 +1,7 @@
 /** Spreadsheet error values and placeholders that mean "no value". */
 const BLANK_VALUES = new Set([
   '#N/A', '#REF!', '#VALUE!', '#DIV/0!', '#NAME?', '#NUM!', '#NULL!', '#ERROR!', '#SPILL!',
-  'N/A', 'NA', '-', '--', 'NULL', 'NONE', 'NIL', '`', "'", '.',
+  'N/A', 'NA', 'NAN', '-', '--', 'NULL', 'NONE', 'NIL', '`', "'", '.',
 ]);
 
 export function isBlank(v: unknown): boolean {

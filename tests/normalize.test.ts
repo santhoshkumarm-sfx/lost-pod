@@ -90,6 +90,14 @@ describe('headers', () => {
     const m = mapColumns(['Status', 'Current status'], [], aliases, [{ index: 1, target: 'status_raw' }]);
     expect(m[1]).toMatchObject({ target: 'status_raw', via: 'override' });
   });
+  it('applies overrides by header text wherever the column sits', () => {
+    const ov = [{ header: 'PODstatus', target: 'status_raw' }, { header: 'status', target: 'shipment_status' }];
+    for (const h of [['AWB', 'status', 'PODstatus'], ['AWB', '', 'Status', 'POD status']]) {
+      const m = mapColumns(h, [], aliases, ov);
+      expect(m.find((x) => /pod/i.test(x.header))?.target).toBe('status_raw');
+      expect(m.find((x) => /^status$/i.test(x.header))?.target).toBe('shipment_status');
+    }
+  });
 });
 
 describe('status resolution', () => {

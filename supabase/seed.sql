@@ -49,7 +49,12 @@ insert into public.status_mappings (pattern, match_type, status_code, priority) 
   ('mark lost', 'contains', 'lost_pending_approval', 30), ('lost', 'contains', 'lost_pending_approval', 70),
   ('closed', 'exact', 'closed', 10), ('close', 'exact', 'closed', 10), ('successfully closed', 'exact', 'closed', 10),
   ('unsuccessfully closed', 'exact', 'closed', 10), ('received', 'exact', 'closed', 10), ('resolved', 'exact', 'closed', 10),
-  ('closed', 'contains', 'closed', 80)
+  ('closed', 'contains', 'closed', 80),
+  -- Meesho (FTPL) daily tabs
+  ('shared', 'exact', 'pod_shared', 10), ('already shared', 'exact', 'pod_shared', 10),
+  ('otp verified', 'exact', 'closed', 10), ('invalid request', 'exact', 'closed', 10), ('forward', 'exact', 'closed', 10),
+  ('shipment snatched', 'exact', 'lost_pending_approval', 10),
+  ('pending for delivery', 'exact', 'pending', 10), ('tat breach', 'exact', 'pending', 10)
 on conflict (pattern, match_type) do nothing;
 
 -- ---------- Header aliases (normalised: lower case, letters and digits only) ----------
@@ -91,7 +96,8 @@ insert into public.column_aliases (alias, target_field) values
   ('clientorderid','order_id'),('orderid','order_id'),
   ('podlinksmailsubjects','pod_link'),('podlinksmailsubject','pod_link'),('suborderno','order_id'),
   ('syedremakes','ignore'),('syedremarks','ignore'),('aseemremarks','ignore'),('assemremarks','ignore'),('tata1mg','ignore'),
-  ('awbnumber','awb'),('lostmarkdate','ignore'),('sharedate','ignore')
+  ('awbnumber','awb'),('rtsridername','rider_name'),('rtsriderid','rider_id'),('podimageurl','pod_link'),
+  ('podlinkreceived','pod_link'),('kamremarks','client_remark'),('hubtype','ignore'),('runsheetid','ignore'),('duplicates','ignore'),('lostmarkdate','ignore'),('sharedate','ignore')
 on conflict (alias) do nothing;
 
 -- ---------- Clients ----------
@@ -109,7 +115,8 @@ insert into public.clients (name, code, aliases) values
   ('TataCliq',   'TCQ', '{"Tata Cliq","Tatacliq","Tata CLiQ"}'),
   ('Firstcry',   'FCY', '{"First cry","FirstCry"}'),
   ('TATA 1MG',   'T1M', '{"Tata 1mg","1mg","1 MG"}'),
-  ('CityMall',   'CTM', '{"City mall","Citymall"}')
+  ('CityMall',   'CTM', '{"City mall","Citymall"}'),
+  ('Meesho',     'MSH', '{"FTPL","Meesho FTPL","Fashnear"}')
 on conflict (name) do nothing;
 
 -- ---------- Tracker tabs shared on 14 Sep 2026 ----------
@@ -200,5 +207,10 @@ insert into public.sheet_sources (workbook_id, workbook_name, sheet_name, defaul
   ('1t85yOh0hnPDt9vY7oqSn8eDZRmBXht6DXSEzQ4iUYmE', 'Firstcry PODs - RTO/RTS', 'Sheet1',
      (select id from c where name='Firstcry'), 'cases', true, '[]'),
   ('1t85yOh0hnPDt9vY7oqSn8eDZRmBXht6DXSEzQ4iUYmE', 'Firstcry PODs - RTO/RTS', 'Roughsheet',
-     (select id from c where name='Firstcry'), 'enrich', true, '[]')
+     (select id from c where name='Firstcry'), 'enrich', true, '[]'),
+
+  -- Meesho keeps one tab per day ("09-10-2026"): the pattern reads every date tab, newest first.
+  ('1X4K_9efayzNdBCfKK68H4Ri_sITpBG4e-qEaCvK5HqQ', 'FTPL-MEESHO - RTO/RTS POD Escalations', '??-??-????',
+     (select id from c where name='Meesho'), 'cases', true,
+     '[{"header":"PODstatus","target":"status_raw"},{"header":"status","target":"shipment_status"},{"header":"name","target":"hub"},{"header":"closed date","target":"ignore"}]')
 on conflict (workbook_id, sheet_name) do nothing;

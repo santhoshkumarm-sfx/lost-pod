@@ -94,16 +94,19 @@ export async function saveMapping(fd: FormData) {
   const id = str(fd, 'id');
   await done(`/imports/${id}`, async () => {
     const width = Number(str(fd, 'width')) || 0;
-    const overrides: { index: number; target: string }[] = [];
+    const sb = await createClient();
+    // Choices made by header text (tabs whose layout varies) are kept; the screen only adds choices by position.
+    const { data: cur } = await sb.from('sheet_sources').select('column_map').eq('id', id).single();
+    const byHeader = ((cur?.column_map ?? []) as { index?: number; header?: string; target: string }[]).filter((o) => o.header);
+    const overrides: { index?: number; header?: string; target: string }[] = [...byHeader];
     for (let i = 0; i < width; i++) {
       const chosen = str(fd, `col_${i}`);
       const auto = str(fd, `auto_${i}`);
       if (chosen !== auto && (chosen === '' ? true : isTargetField(chosen))) overrides.push({ index: i, target: chosen || 'ignore' });
     }
-    const sb = await createClient();
     const { error } = await sb.from('sheet_sources').update({ column_map: overrides }).eq('id', id);
     if (error) throw error;
-    return overrides.length ? `Mapping saved with ${overrides.length} manual column choice(s). Sync the tab to apply it.` : 'Mapping reset to automatic detection.';
+    return overrides.length > byHeader.length ? `Mapping saved with ${overrides.length - byHeader.length} manual column choice(s). Sync the tab to apply it.` : 'Mapping reset to automatic detection.';
   });
 }
 

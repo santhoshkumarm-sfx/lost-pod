@@ -5,8 +5,10 @@ import { clean, isUrl, levenshtein, normHeader } from './text';
 
 export type AliasMap = Map<string, TargetField>;
 
+/** A per-tab mapping choice, by column position (set on the mapping screen) or by header text (for tabs whose layout varies). */
 export interface ColumnOverride {
-  index: number;
+  index?: number;
+  header?: string;
   target: string;
 }
 
@@ -81,11 +83,13 @@ export function mapColumns(
   overrides: ColumnOverride[] = [],
 ): ColumnMapping[] {
   const width = Math.max(headers.length, ...sampleRows.map((r) => r.length), 0);
-  const overrideByIndex = new Map(overrides.filter((o) => isTargetField(o.target)).map((o) => [o.index, o.target as TargetField]));
+  const valid = overrides.filter((o) => isTargetField(o.target));
+  const overrideByIndex = new Map(valid.filter((o) => typeof o.index === 'number').map((o) => [o.index, o.target as TargetField]));
+  const overrideByHeader = new Map(valid.filter((o) => o.header).map((o) => [normHeader(o.header!), o.target as TargetField]));
   const out: ColumnMapping[] = [];
   for (let i = 0; i < width; i++) {
     const header = String(headers[i] ?? '').trim();
-    const ov = overrideByIndex.get(i);
+    const ov = overrideByIndex.get(i) ?? (header ? overrideByHeader.get(normHeader(header)) : undefined);
     if (ov) {
       out.push({ index: i, header, target: ov, via: 'override' });
       continue;

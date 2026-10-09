@@ -49,6 +49,8 @@ The app reads trackers, Gmail and Drive through a small Apps Script that runs as
 3. **Deploy → New deployment → Web app**, Execute as: **Me**, Who has access: **Anyone**. Authorize, then copy the `/exec` URL into `setup.env` as `GOOGLE_BRIDGE_URL` and run setup again.
 4. After changing `Bridge.gs`: **Deploy → Manage deployments → ✏️ → New version → Deploy**.
 
+A tab name with `?` or `*` reads every matching tab, e.g. `??-??-????` for a workbook with one tab per day (Meesho).
+
 Trackers must be shared with the account that runs the bridge. Emails are sent from that mailbox. Uploaded Excel files are kept in its Drive under "Lost POD uploads".
 
 ## Schedules (Vercel)

@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readTab } from '../google';
+import { getWorkbook, readTab } from '../google';
 import { normalizeSheet, type NormalizedSheet } from '../normalize/sheet';
 import type { ColumnOverride } from '../normalize/headers';
 import { loadImportConfig, type ImportConfig } from './config';
@@ -54,6 +54,52 @@ export function normalizeFor(values: string[][], source: SheetSource, cfg: Impor
   });
 }
 
+/** A tab name with * or ? (e.g. "??-??-????" for one tab per day) stands for every matching tab. */
+export const isPattern = (name: string) => /[*?]/.test(name);
+
+function tabDateKey(name: string): string {
+  const m = name.match(/(\d{1,2})[-./](\d{1,2})[-./](\d{4})/);
+  return m ? `${m[3]}${m[2].padStart(2, '0')}${m[1].padStart(2, '0')}` : name;
+}
+
+/** The tabs a source reads, newest first (by the date in the tab name when there is one). */
+export async function tabsFor(source: Pick<SheetSource, 'workbook_id' | 'sheet_name'>): Promise<string[]> {
+  if (!isPattern(source.sheet_name)) return [source.sheet_name];
+  const glob = source.sheet_name.trim().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  const re = new RegExp(`^${glob}$`, 'i');
+  const wb = await getWorkbook(source.workbook_id);
+  return wb.tabs
+    .filter((t) => !t.hidden && re.test(t.title.trim()))
+    .map((t) => t.title)
+    .sort((a, b) => tabDateKey(b).localeCompare(tabDateKey(a)));
+}
+
+/** Read every tab of a source (a few at a time) and normalise each with its own header row; newer tabs win. */
+async function readSource(source: SheetSource, cfg: ImportConfig): Promise<NormalizedSheet> {
+  const tabs = await tabsFor(source);
+  if (!isPattern(source.sheet_name)) return normalizeFor(await readTab(source.workbook_id, source.sheet_name), source, cfg);
+  if (!tabs.length) throw new Error(`No tab matches "${source.sheet_name}".`);
+  const sheets: { tab: string; n: NormalizedSheet }[] = [];
+  for (let i = 0; i < tabs.length; i += 6) {
+    const part = await Promise.all(tabs.slice(i, i + 6).map(async (tab) => ({ tab, n: normalizeFor(await readTab(source.workbook_id, tab), source, cfg) })));
+    sheets.push(...part);
+  }
+  const rows = new Map<string, NormalizedSheet['rows'][number]>();
+  for (const { tab, n } of sheets) {
+    for (const r of n.rows) if (!rows.has(r.source_key)) rows.set(r.source_key, { ...r, extra: { ...r.extra, tab } });
+  }
+  const newest = sheets[0].n;
+  return {
+    headerRow: newest.headerRow,
+    mapping: newest.mapping,
+    dateOrders: newest.dateOrders,
+    rows: [...rows.values()],
+    rowsRead: sheets.reduce((a, s) => a + s.n.rowsRead, 0),
+    skipped: sheets.reduce((a, s) => a + s.n.skipped, 0),
+    issues: sheets.flatMap(({ tab, n }) => n.issues.map((x) => ({ row: x.row, message: `${tab}: ${x.message}` }))).slice(0, 50),
+  };
+}
+
 /** Read one tab, normalise it and upsert through public.import_sheet_rows (service-role client). */
 export async function syncSource(
   sb: SupabaseClient,
@@ -80,8 +126,7 @@ export async function syncSource(
   let normalized: NormalizedSheet | null = null;
 
   try {
-    const values = await readTab(source.workbook_id, source.sheet_name);
-    normalized = normalizeFor(values, source, cfg);
+    normalized = await readSource(source, cfg);
     result.rowsRead = normalized.rowsRead;
     result.skipped = normalized.skipped;
     for (let i = 0; i < normalized.rows.length; i += BATCH) {

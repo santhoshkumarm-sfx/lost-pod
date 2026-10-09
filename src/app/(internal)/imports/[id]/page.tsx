@@ -5,10 +5,9 @@ import { Field, Flash, Panel } from '@/components/ui';
 import { isAdminRole, requireInternal } from '@/lib/auth';
 import { errorText, type SearchParams } from '@/lib/flash';
 import { fmtDate, fmtDateTime, fmtNum } from '@/lib/format';
-import { googleStatus } from '@/lib/google';
-import { readTab } from '@/lib/google';
+import { googleStatus, readTab } from '@/lib/google';
 import { loadImportConfig } from '@/lib/importer/config';
-import { getSource, normalizeFor } from '@/lib/importer/sheets-sync';
+import { getSource, normalizeFor, tabsFor } from '@/lib/importer/sheets-sync';
 import { getClients, getStatuses } from '@/lib/lookups';
 import { FIELD_LABELS, TARGET_FIELDS } from '@/lib/normalize/fields';
 import type { NormalizedSheet } from '@/lib/normalize/sheet';
@@ -48,10 +47,10 @@ export default async function SourcePage({ params, searchParams }: { params: Pro
   let previewError: string | null = null;
   if (g.sheets) {
     try {
-      raw = await readTab(source.workbook_id, source.sheet_name, 80);
+      raw = await readTab(source.workbook_id, (await tabsFor(source))[0] ?? source.sheet_name, 80);
       const cfg = await loadImportConfig(supabase);
       preview = normalizeFor(raw, source, cfg);
-      auto = normalizeFor(raw, { ...source, column_map: [] }, cfg);
+      auto = normalizeFor(raw, { ...source, column_map: (source.column_map ?? []).filter((o) => o.header) }, cfg);
     } catch (e) {
       previewError = errorText(e);
     }
