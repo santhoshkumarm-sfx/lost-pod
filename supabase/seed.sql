@@ -88,7 +88,10 @@ insert into public.column_aliases (alias, target_field) values
   ('productname','product_name'),('product','product_name'),('itemname','product_name'),('item','product_name'),
   ('productvalue','product_value'),('price','product_value'),('value','product_value'),('invoicevalue','product_value'),
   ('declaredvalue','product_value'),('ordervalue','product_value'),('mrp','product_value'),
-  ('clientorderid','order_id'),('orderid','order_id')
+  ('clientorderid','order_id'),('orderid','order_id'),
+  ('podlinksmailsubjects','pod_link'),('podlinksmailsubject','pod_link'),('suborderno','order_id'),
+  ('syedremakes','ignore'),('syedremarks','ignore'),('aseemremarks','ignore'),('assemremarks','ignore'),('tata1mg','ignore'),
+  ('awbnumber','awb'),('lostmarkdate','ignore'),('sharedate','ignore')
 on conflict (alias) do nothing;
 
 -- ---------- Clients ----------
@@ -99,7 +102,14 @@ insert into public.clients (name, code, aliases) values
   ('Shiprocket', 'SHR', '{"Ship Rocket"}'),
   ('Naaptol',    'NAP', '{}'),
   ('Lenskart',   'LNK', '{}'),
-  ('Swift',      'SWF', '{"Swift Premium","Swift Prime","Swift Renee","Swiftship"}')
+  ('Swift',      'SWF', '{"Swift Premium","Swift Prime","Swift Renee","Swiftship"}'),
+  ('Snapdeal',   'SDL', '{"Snap deal"}'),
+  ('JioMart',    'JIO', '{"Jio Mart","Jiomart","Reliance JioMart"}'),
+  ('Shipdelight','SHD', '{"Ship delight","Ship Delight"}'),
+  ('TataCliq',   'TCQ', '{"Tata Cliq","Tatacliq","Tata CLiQ"}'),
+  ('Firstcry',   'FCY', '{"First cry","FirstCry"}'),
+  ('TATA 1MG',   'T1M', '{"Tata 1mg","1mg","1 MG"}'),
+  ('CityMall',   'CTM', '{"City mall","Citymall"}')
 on conflict (name) do nothing;
 
 -- ---------- Tracker tabs shared on 14 Sep 2026 ----------
@@ -156,5 +166,39 @@ insert into public.sheet_sources (workbook_id, workbook_name, sheet_name, defaul
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'POD RVP ',
      (select id from c where name='Swift'), 'cases', true, '[{"index":8,"target":"hub"},{"index":10,"target":"status_raw"}]'),
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'Rough sheet',
-     (select id from c where name='Swift'), 'enrich', true, '[]')
+     (select id from c where name='Swift'), 'enrich', true, '[]'),
+
+  -- Added 9 Oct 2026. Pivot tables and their "Detail…" drill-down copies are not imported (they repeat the main tab).
+  ('1zfam9OvaEGre_QsT8_erkl_BzsqV5agHd6eoIiQZGGI', 'Snapdeal', 'Snapdeal',
+     (select id from c where name='Snapdeal'), 'cases', true, '[]'),
+  ('1zfam9OvaEGre_QsT8_erkl_BzsqV5agHd6eoIiQZGGI', 'Snapdeal', 'TATA 1MG',
+     (select id from c where name='TATA 1MG'), 'cases', true, '[{"index":8,"target":"team_remark"}]'),
+  ('1zfam9OvaEGre_QsT8_erkl_BzsqV5agHd6eoIiQZGGI', 'Snapdeal', 'citymall',
+     (select id from c where name='CityMall'), 'cases', true, '[]'),
+  ('1zfam9OvaEGre_QsT8_erkl_BzsqV5agHd6eoIiQZGGI', 'Snapdeal', 'Rough sheet',
+     (select id from c where name='Snapdeal'), 'enrich', true, '[]'),
+
+  ('1o8btDW9uclJWHesJjmVtp2H0DIecrH85yW7hqDA6vdU', 'Jiomart RTO/RTS PODs - 2026', 'Jio Mart',
+     (select id from c where name='JioMart'), 'cases', true, '[]'),
+  ('1o8btDW9uclJWHesJjmVtp2H0DIecrH85yW7hqDA6vdU', 'Jiomart RTO/RTS PODs - 2026', 'Roughsheet',
+     (select id from c where name='JioMart'), 'enrich', true, '[]'),
+
+  ('1fTUa1adNa6rfI5teVRCopLA4aG32bhBNfUZM7rYZ3nk', 'SHIPDELIGHT <> SHADOWFAX POD', 'Working ',
+     (select id from c where name='Shipdelight'), 'cases', true, '[]'),
+  ('1fTUa1adNa6rfI5teVRCopLA4aG32bhBNfUZM7rYZ3nk', 'SHIPDELIGHT <> SHADOWFAX POD', 'Roughsheet',
+     (select id from c where name='Shipdelight'), 'enrich', true, '[]'),
+
+  ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Sheet1',
+     (select id from c where name='TataCliq'), 'cases', true, '[]'),
+  ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Sheet14',
+     (select id from c where name='TataCliq'), 'cases', false, '[]'),
+  ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Sheet15',
+     (select id from c where name='TataCliq'), 'cases', false, '[]'),
+  ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Rough sheet',
+     (select id from c where name='TataCliq'), 'enrich', true, '[]'),
+
+  ('1t85yOh0hnPDt9vY7oqSn8eDZRmBXht6DXSEzQ4iUYmE', 'Firstcry PODs - RTO/RTS', 'Sheet1',
+     (select id from c where name='Firstcry'), 'cases', true, '[]'),
+  ('1t85yOh0hnPDt9vY7oqSn8eDZRmBXht6DXSEzQ4iUYmE', 'Firstcry PODs - RTO/RTS', 'Roughsheet',
+     (select id from c where name='Firstcry'), 'enrich', true, '[]')
 on conflict (workbook_id, sheet_name) do nothing;
