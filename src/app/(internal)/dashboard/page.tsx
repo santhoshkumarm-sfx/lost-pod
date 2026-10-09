@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { HBarChart } from '@/components/charts';
 import { Aging, AgingRibbon, Flash, Kpi, PageHeader, Panel, StatusBadge } from '@/components/ui';
 import { CaseFilterForm } from '@/components/CaseFilterForm';
-import { applyCaseFilters, filtersToQuery, getCriticalDays, parseCaseFilters, statsFilter as toStats, type PodStats } from '@/lib/cases/filters';
-import { PendingAgeBar, PodTiles } from '@/components/pod';
+import { applyCaseFilters, filtersToQuery, parseCaseFilters, statsFilter as toStats, type PodStats } from '@/lib/cases/filters';
+import { PodTiles } from '@/components/pod';
+import { PivotTable } from '@/components/pivot';
 import { requireInternal } from '@/lib/auth';
 import type { SearchParams } from '@/lib/flash';
 import { getAgents, getBuckets, getClients, getPocs, getStatuses } from '@/lib/lookups';
@@ -239,35 +240,40 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   if (isSuper && sp.view === 'detailed') return <DetailedDashboard sp={sp} />;
   const f = parseCaseFilters(sp, { category: 'all' });
   const supabase = await createClient();
-  const criticalDays = await getCriticalDays(supabase);
   const p = toStats(f, { category: 'all' });
-  const [statsRes, mineRes, clients, agents, criticalRes] = await Promise.all([
+  const [statsRes, mineRes, clients, agents] = await Promise.all([
     supabase.rpc('pod_stats', { p }),
     user.role === 'internal_team' ? supabase.rpc('pod_stats', { p: { ...p, agent: user.id } }) : Promise.resolve({ data: null }),
     getClients(supabase),
     getAgents(supabase),
-    applyCaseFilters(supabase.from('v_cases').select('id, awb, client_display_name, aging_days, status_label, status_color, hub, location, agent_display_name, team_remark'),
-      { ...f, category: 'critical' }, { criticalDays })
-      .order('aging_days', { ascending: false })
-      .limit(12),
   ]);
   if (statsRes.error) throw new Error(statsRes.error.message);
   const s = statsRes.data as PodStats;
   const mine = mineRes.data as PodStats | null;
   const base = { q: f.q, client: f.client, agent: f.agent, hub: f.hub, source: f.source, from: f.from, to: f.to, poc: f.poc };
   const cases = (extra: Record<string, string | null>) => `/cases${filtersToQuery({ ...base, sort: 'aging_days', dir: 'desc' } as never, extra)}`;
+  const ageHref = (i: number, extra: Record<string, string | null> = {}) => {
+    const b = s.pending_age[i];
+    return cases({ category: 'pending_pod', agemin: String(b.min), agemax: b.max === null ? null : String(b.max), ...extra });
+  };
   const tileHref = (k: string) =>
     k === 'pending' ? cases({ category: 'pending_pod' }) : k === 'critical' ? cases({ category: 'critical' })
       : k === 'shared' ? cases({ category: 'pod_done' }) : k === 'lost_pending' ? `/lost-approval${f.client ? `?client=${f.client}` : ''}`
         : cases({ category: 'lost' });
-  const critical = (criticalRes.data ?? []) as Pick<CaseRow, 'id' | 'awb' | 'client_display_name' | 'aging_days' | 'status_label' | 'status_color' | 'hub' | 'location' | 'agent_display_name' | 'team_remark'>[];
-  const showAgents = user.role !== 'internal_team';
+  const ageCols = s.pending_age.map((b) => ({ label: `${b.label} days`, alert: b.min > s.critical_days }));
+  const clientKey = (id: string | null) => id ?? 'none';
+  const statusCols = [
+    { label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)`, alert: true }, { label: 'POD shared / closed' },
+    { label: 'Loss requested' }, { label: 'Loss accepted' },
+  ];
+  const statusCats = ['pending_pod', 'critical', 'pod_done', 'lost_pending', 'lost'];
 
   return (
     <>
       <PageHeader
         title="Dashboard"
-        sub={`Every shipment ends with a POD shared or a loss accepted. Pending POD over ${s.critical_days} days is critical.`}
+        sub={`Every shipment ends with a POD shared or a loss accepted. Pending POD over ${s.critical_days} days is critical. Click any number to open those cases.`}
+        actions={<Link href={cases({ category: 'critical' })} className="btn btn-danger">Open critical list ({fmtNum(s.critical)})</Link>}
       />
       <Flash sp={sp} />
       {isSuper && <DashTabs detailed={false} />}
@@ -279,7 +285,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         more={['hub', 'poc', 'source', 'dates']}
         clients={clients}
         agents={agents}
-        criticalDays={criticalDays}
+        criticalDays={s.critical_days}
       />
       {mine && (
         <p className="mb-3 rounded border border-line bg-panel px-4 py-2">
@@ -288,70 +294,53 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         </p>
       )}
       <PodTiles s={s} href={tileHref} />
-      <Panel title={`Pending POD by days since escalation (critical after ${s.critical_days} days)`} className="mb-4">
-        <PendingAgeBar s={s} hrefFor={(min, max) => cases({ category: 'pending_pod', agemin: String(min), agemax: max === null ? null : String(max) })} />
-      </Panel>
-      <div className="grid gap-4 xl:grid-cols-[3fr_2fr]">
-        <Panel title={`Critical — oldest first`} actions={<Link href={cases({ category: 'critical' })} className="btn btn-sm">All {fmtNum(s.critical)} critical</Link>} bodyClass="tbl-wrap">
-          <table className="tbl">
-            <thead>
-              <tr><th>AWB</th><th>Client</th><th>Aging</th><th>Status</th><th>Hub</th><th>Agent</th></tr>
-            </thead>
-            <tbody>
-              {critical.map((c) => (
-                <tr key={c.id}>
-                  <td><Link href={`/cases/${c.id}`} className="awb">{c.awb}</Link></td>
-                  <td>{c.client_display_name ?? '—'}</td>
-                  <td><Aging days={c.aging_days} /></td>
-                  <td><StatusBadge label={c.status_label} color={c.status_color} /></td>
-                  <td className="max-w-[160px] truncate">{c.hub ?? c.location ?? '—'}</td>
-                  <td className="whitespace-nowrap">{c.agent_display_name ?? <span className="muted">Unassigned</span>}</td>
-                </tr>
-              ))}
-              {!critical.length && <tr><td colSpan={6} className="py-6 text-center text-ink-soft">Nothing critical. Well done.</td></tr>}
-            </tbody>
-          </table>
-        </Panel>
-        <div className="space-y-4">
-          <Panel title="By client" bodyClass="tbl-wrap">
-            <table className="tbl">
-              <thead>
-                <tr><th>Client</th><th className="text-right">Pending POD</th><th className="text-right">Critical</th><th className="text-right">Loss requested</th></tr>
-              </thead>
-              <tbody>
-                {s.by_client.slice(0, 15).map((c) => (
-                  <tr key={c.client + (c.client_id ?? '')}>
-                    <td><Link href={cases({ client: c.client_id ?? 'none', category: 'pending_pod' })}>{c.client}</Link></td>
-                    <td className="text-right">{fmtNum(c.pending)}</td>
-                    <td className={`text-right ${c.critical ? 'font-semibold text-age-5' : ''}`}>{c.critical ? <Link className="text-age-5" href={cases({ client: c.client_id ?? 'none', category: 'critical' })}>{fmtNum(c.critical)}</Link> : 0}</td>
-                    <td className="text-right">{fmtNum(c.lost_pending)}</td>
-                  </tr>
-                ))}
-                {!s.by_client.length && <tr><td colSpan={4} className="py-6 text-center text-ink-soft">Nothing pending.</td></tr>}
-              </tbody>
-            </table>
-          </Panel>
-          {showAgents && (
-            <Panel title="By agent" bodyClass="tbl-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr><th>Agent</th><th className="text-right">Pending POD</th><th className="text-right">Critical</th><th className="text-right">Oldest</th></tr>
-                </thead>
-                <tbody>
-                  {s.by_agent.slice(0, 12).map((a) => (
-                    <tr key={a.agent + (a.agent_id ?? '')}>
-                      <td><Link href={cases({ agent: a.agent_id ?? 'unassigned', category: 'pending_pod' })}>{a.agent}</Link></td>
-                      <td className="text-right">{fmtNum(a.pending)}</td>
-                      <td className={`text-right ${a.critical ? 'font-semibold text-age-5' : ''}`}>{fmtNum(a.critical)}</td>
-                      <td className="text-right">{a.oldest ?? 0} d</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Panel>
-          )}
-        </div>
-      </div>
+
+      <PivotTable
+        title="Pending POD — client × days since escalation"
+        note={`Shaded columns are critical (more than ${s.critical_days} days).`}
+        rowHeader="Client"
+        columns={ageCols}
+        rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
+          label: c.client,
+          href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
+          cells: c.age.map((v, i) => ({ value: v, href: ageHref(i, { client: clientKey(c.client_id) }) })),
+        }))}
+        columnHref={(i) => ageHref(i)}
+        totalHref={cases({ category: 'pending_pod' })}
+      />
+
+      <PivotTable
+        title="All cases — client × status"
+        rowHeader="Client"
+        columns={statusCols}
+        rows={s.by_client.map((c) => ({
+          label: c.client,
+          href: cases({ client: clientKey(c.client_id), category: 'all' }),
+          cells: [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost].map((v, i) => ({
+            value: v,
+            href: statusCats[i] === 'lost_pending' ? `/lost-approval?client=${clientKey(c.client_id)}` : cases({ client: clientKey(c.client_id), category: statusCats[i] }),
+          })),
+        }))}
+        columnHref={(i) => (statusCats[i] === 'lost_pending' ? '/lost-approval' : cases({ category: statusCats[i] }))}
+        totalHref={cases({ category: 'all' })}
+        notInTotal={[1]}
+        note="Grand Total counts each case once; Critical is part of Pending POD, so it is not added again."
+      />
+
+      {user.role !== 'client_poc' && (
+        <PivotTable
+          title="Pending POD — agent × days since escalation"
+          rowHeader="Agent"
+          columns={ageCols}
+          rows={s.by_agent.map((a) => ({
+            label: a.agent,
+            href: cases({ agent: a.agent_id ?? 'unassigned', category: 'pending_pod' }),
+            cells: a.age.map((v, i) => ({ value: v, href: ageHref(i, { agent: a.agent_id ?? 'unassigned' }) })),
+          }))}
+          columnHref={(i) => ageHref(i)}
+          totalHref={cases({ category: 'pending_pod' })}
+        />
+      )}
     </>
   );
 }

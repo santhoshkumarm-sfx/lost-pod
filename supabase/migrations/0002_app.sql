@@ -846,7 +846,14 @@ returns jsonb language sql stable security invoker set search_path = public as $
            (status_category = 'open' and team_status <> 'pod_shared' and pod_status <> 'shared') as pending
     from public.cases_filtered(p - 'category' - 'status' - 'agemin' - 'agemax' - 'aging')
   ),
-  k as (select public.critical_days() as d, public.app_today() as today)
+  k as (select public.critical_days() as d, public.app_today() as today),
+  -- Age columns of the pivot tables (pending POD only); the bucket after the critical line starts at d + 1.
+  b as (select bb.* from k, lateral (values (1, '0–3', 0, 3), (2, '4–' || k.d, 4, k.d), (3, (k.d + 1) || '–15', k.d + 1, 15),
+                                            (4, '16–30', 16, 30), (5, '31–60', 31, 60), (6, '60+', 61, null)) as bb(n, label, lo, hi)
+        where bb.lo <= coalesce(bb.hi, 100000)),
+  pb as materialized (   -- pending POD with its age column
+    select base.*, b.n from base join b on base.aging_days between b.lo and coalesce(b.hi, 100000) where base.pending
+  )
   select jsonb_build_object(
     'critical_days', (select d from k),
     'total', (select count(*) from base),
@@ -858,26 +865,25 @@ returns jsonb language sql stable security invoker set search_path = public as $
     'lost', (select count(*) from base where status_category = 'lost'),
     'new_today', (select count(*) from base, k where escalation_date >= k.today - 1),
     'pending_age', (select jsonb_agg(jsonb_build_object('label', b.label, 'min', b.lo, 'max', b.hi,
-                                                        'count', (select count(*) from base where pending and aging_days between b.lo and coalesce(b.hi, 100000))) order by b.lo)
-                    from k, lateral (values ('0–3', 0, 3), ('4–' || k.d, 4, k.d), ((k.d + 1) || '–15', k.d + 1, 15),
-                                            ('16–30', 16, 30), ('31–60', 31, 60), ('60+', 61, null)) as b(label, lo, hi)
-                    where b.lo <= coalesce(b.hi, 100000)),
-    'by_client', coalesce((select jsonb_agg(c order by c.critical desc, c.pending desc, c.client) from (
+                                                        'count', (select count(*) from pb where pb.n = b.n)) order by b.n) from b),
+    'by_client', coalesce((select jsonb_agg(c order by c.pending desc, c.total desc, c.client) from (
         select client_id, client,
+               count(*) as total,
                count(*) filter (where pending) as pending,
                count(*) filter (where pending and aging_days > (select d from k)) as critical,
                count(*) filter (where (status_category = 'open' and not pending) or status_category = 'closed') as pod_shared,
                count(*) filter (where status_category = 'lost_pending') as lost_pending,
                count(*) filter (where status_category = 'lost') as lost,
-               max(aging_days) filter (where pending) as oldest
-        from base group by client_id, client
-        having count(*) filter (where pending or status_category = 'lost_pending') > 0) c), '[]'::jsonb),
-    'by_agent', coalesce((select jsonb_agg(g order by g.critical desc, g.pending desc) from (
+               max(aging_days) filter (where pending) as oldest,
+               (select jsonb_agg((select count(*) from pb where pb.n = b.n and pb.client_id is not distinct from base.client_id) order by b.n) from b) as age
+        from base group by client_id, client) c), '[]'::jsonb),
+    'by_agent', coalesce((select jsonb_agg(g order by g.pending desc, g.agent) from (
         select assigned_agent as agent_id, agent,
-               count(*) filter (where pending) as pending,
-               count(*) filter (where pending and aging_days > (select d from k)) as critical,
-               max(aging_days) filter (where pending) as oldest
-        from base group by assigned_agent, agent having count(*) filter (where pending) > 0) g), '[]'::jsonb)
+               count(*) as pending,
+               count(*) filter (where aging_days > (select d from k)) as critical,
+               max(aging_days) as oldest,
+               (select jsonb_agg((select count(*) from pb x where x.n = b.n and x.assigned_agent is not distinct from pb.assigned_agent) order by b.n) from b) as age
+        from pb group by assigned_agent, agent) g), '[]'::jsonb)
   )
 $$;
 grant execute on function public.pod_stats(jsonb) to authenticated, service_role;

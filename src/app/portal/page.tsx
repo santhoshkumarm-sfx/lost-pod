@@ -3,7 +3,8 @@ import { CaseFilterForm } from '@/components/CaseFilterForm';
 import { Aging, Empty, Flash, Pagination, SortHeader, StatusBadge } from '@/components/ui';
 import { requirePoc } from '@/lib/auth';
 import { applyCaseFilters, filtersToQuery, getCriticalDays, parseCaseFilters, type PodStats } from '@/lib/cases/filters';
-import { PendingAgeBar, PodTiles } from '@/components/pod';
+import { PodTiles } from '@/components/pod';
+import { PivotTable } from '@/components/pivot';
 import type { SearchParams } from '@/lib/flash';
 import { clientStatusLabel, fmtDate, fmtDateTime } from '@/lib/format';
 import { SelectAll, SubmitButton } from '@/components/buttons';
@@ -61,11 +62,17 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
         href={(k) => k === 'lost_pending' ? '/portal/requests?state=open'
           : href({ category: k === 'pending' ? 'pending_pod' : k === 'shared' ? 'pod_done' : k, status: null, agemin: null, agemax: null, aging: null, page: 1 })}
       />
-      <section className="panel panel-body mb-5">
-        <h2 className="mb-1">Pending POD by days since you escalated</h2>
-        <p className="mb-3 text-xs text-ink-soft">{filtered ? 'Counts follow your search. ' : ''}Over {s.critical_days} days is critical for us too — these are being chased first.</p>
-        <PendingAgeBar s={s} hrefFor={(min, max) => href({ category: 'pending_pod', agemin: String(min), agemax: max === null ? null : String(max), aging: null, status: null, page: 1 })} />
-      </section>
+      <PivotTable
+        title="Pending POD by days since you escalated"
+        note={`${filtered ? 'Counts follow your search. ' : ''}Shaded columns (over ${s.critical_days} days) are being chased first.`}
+        rowHeader="Client"
+        columns={s.pending_age.map((b) => ({ label: `${b.label} days`, alert: b.min > s.critical_days }))}
+        rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
+          label: c.client,
+          cells: c.age.map((v, i) => ({ value: v, href: href({ category: 'pending_pod', agemin: String(s.pending_age[i].min), agemax: s.pending_age[i].max === null ? null : String(s.pending_age[i].max), aging: null, status: null, page: 1 }) })),
+        }))}
+        totalHref={href({ category: 'pending_pod', agemin: null, agemax: null, aging: null, status: null, page: 1 })}
+      />
       {!!notes.data?.length && (
         <section className="panel mb-5 divide-y divide-line">
           {notes.data.map((m) => (
