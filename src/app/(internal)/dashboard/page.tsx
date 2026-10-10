@@ -295,8 +295,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       <PodTiles s={s} href={tileHref} />
 
       <PivotTable
-        title="Pending POD — first week, day by day"
-        note="Shipments escalated in the last 7 days that still need a POD. 1 day includes those escalated today."
+        title={`Pending POD — not yet critical (up to ${s.critical_days} days), day by day`}
+        note={`The newer part of Pending POD: ${fmtNum(s.pending - s.critical)} here + ${fmtNum(s.critical)} critical (over ${s.critical_days} days) = ${fmtNum(s.pending)} pending. 1 day includes those escalated today.`}
         rowHeader="Client"
         columns={weekCols}
         rows={s.by_client.filter((c) => c.week.some((v) => v > 0)).map((c) => ({
