@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { cleanAwb } from './awb';
 import { resolveClient, type ClientLite } from './clients';
 import {
-  detectColumnOrder, findDateInText, parseDate, plausibleDelivery, voteOrderAgainst, type DateOrder,
+  dayDiff, detectColumnOrder, findDateInText, parseDate, plausibleDelivery, voteOrderAgainst, type DateOrder,
 } from './dates';
 import type { TargetField } from './fields';
 import { detectHeaderRow, mapColumns, mappingSignature, type AliasMap, type ColumnMapping, type ColumnOverride } from './headers';
@@ -85,6 +85,11 @@ export function normalizeSheet(values: string[][], ctx: SheetContext): Normalize
   const body = values.slice(headerIdx + 1);
   const mapping = mapColumns(headers, body.slice(0, 60), ctx.aliases, ctx.overrides);
   const sig = mappingSignature(mapping);
+  // Rows are re-applied when the status wording rules change, not only when the sheet changes.
+  const rulesKey = createHash('sha256')
+    .update(JSON.stringify([...ctx.statusRules].map((r) => [r.pattern, r.match_type, r.status_code, r.priority]).sort()))
+    .update('v2')
+    .digest('hex');
   const issues: SheetIssue[] = [];
   const addIssue = (row: number, message: string) => {
     if (issues.length < MAX_ISSUES) issues.push({ row, message });
@@ -141,8 +146,20 @@ export function normalizeSheet(values: string[][], ctx: SheetContext): Normalize
     // Escalation date (+ fallback to a date inside the mail subject)
     const subject = first(row, 'email_subject');
     const escRaw = first(row, 'escalation_date');
-    let escIso = escRaw ? parseDate(escRaw, dateOrders.escalation_date!, today)?.iso ?? null : null;
+    const escP = escRaw ? parseDate(escRaw, dateOrders.escalation_date!, today) : null;
+    let escIso = escP?.iso ?? null;
     if (escRaw && !escIso) addIssue(rowNumber, `Could not read escalation date "${escRaw}"`);
+    // Columns that mix real dates (shown 7/1/2026) with typed text (09/10/2026): when the column's reading
+    // is impossible for this row (in the future, or before delivery), use the other reading.
+    if (escP?.swappable && escP.swappedIso) {
+      const delRawLit = first(row, 'delivery_date');
+      const delLit = delRawLit ? parseDate(delRawLit, delOrder, today)?.iso ?? null : null;
+      const fits = (iso: string) => iso <= today && (!delLit || dayDiff(iso, delLit) >= -3);
+      if (!fits(escP.iso) && fits(escP.swappedIso)) {
+        escIso = escP.swappedIso;
+        extra.escalation_date_corrected_from = escRaw;
+      }
+    }
     if (escIso && escIso > today) {
       addIssue(rowNumber, `Escalation date ${escIso} is in the future; treated as missing`);
       escIso = null;
@@ -164,6 +181,12 @@ export function normalizeSheet(values: string[][], ctx: SheetContext): Normalize
         deliveryIso = fixed.iso;
         if (fixed.corrected) extra.delivery_date_corrected_from = delRaw;
       }
+    }
+    // No escalation date in the tracker: age it from the delivery date rather than from the day it was imported.
+    const keyEsc = escIso;
+    if (!escIso && deliveryIso) {
+      escIso = deliveryIso;
+      extra.escalation_date_from = 'delivery_date';
     }
     const closureRaw = first(row, 'closure_date');
     const closureIso = closureRaw ? parseDate(closureRaw, dateOrders.closure_date!, today)?.iso ?? null : null;
@@ -196,7 +219,7 @@ export function normalizeSheet(values: string[][], ctx: SheetContext): Normalize
     });
 
     const normalized: NormalizedRow = {
-      source_key: `${ctx.sourceId}:${awb}:${escIso ?? 'na'}`,
+      source_key: `${ctx.sourceId}:${awb}:${keyEsc ?? 'na'}`,
       record_hash: '',
       row_number: rowNumber,
       awb,
@@ -245,7 +268,7 @@ export function normalizeSheet(values: string[][], ctx: SheetContext): Normalize
 
   const rows = [...byKey.values()].map(({ row, cells: c }) => ({
     ...row,
-    record_hash: createHash('sha256').update(sig).update('\u0001').update(JSON.stringify(c)).digest('hex'),
+    record_hash: createHash('sha256').update(sig).update('\u0001').update(rulesKey).update('\u0001').update(JSON.stringify(c)).digest('hex'),
   }));
 
   return { headerRow: headerIdx + 1, mapping, dateOrders, rows, rowsRead: body.length, skipped, issues };

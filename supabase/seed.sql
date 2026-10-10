@@ -54,7 +54,25 @@ insert into public.status_mappings (pattern, match_type, status_code, priority) 
   ('shared', 'exact', 'pod_shared', 10), ('already shared', 'exact', 'pod_shared', 10),
   ('otp verified', 'exact', 'closed', 10), ('invalid request', 'exact', 'closed', 10), ('forward', 'exact', 'closed', 10),
   ('shipment snatched', 'exact', 'lost_pending_approval', 10),
-  ('pending for delivery', 'exact', 'pending', 10), ('tat breach', 'exact', 'pending', 10)
+  ('pending for delivery', 'exact', 'pending', 10), ('tat breach', 'exact', 'pending', 10),
+  -- Wording checked against all 13 trackers (Oct 2026)
+  -- No POD needed: delivered to the customer / OTP proof / cancelled / invalid
+  ('delivered with otp', 'exact', 'closed', 10), ('otp delivered', 'exact', 'closed', 10), ('otp delivery', 'exact', 'closed', 10),
+  ('otp verified', 'contains', 'closed', 45), ('customer delivered', 'contains', 'closed', 45), ('customer delivery', 'contains', 'closed', 45),
+  ('marketplace delivery', 'exact', 'closed', 10), ('cancelled', 'exact', 'closed', 10), ('canceled', 'exact', 'closed', 10),
+  ('invalid awb', 'exact', 'closed', 10), ('invalid request', 'contains', 'closed', 45), ('duplicate', 'exact', 'closed', 10),
+  ('completed', 'exact', 'closed', 10),
+  -- POD given
+  ('manual pod', 'exact', 'pod_shared', 10), ('mail confirmation', 'exact', 'pod_shared', 10),
+  ('mail confirmation - received', 'exact', 'pod_shared', 10),
+  -- Being worked on / shipment moving
+  ('rto/rts in process', 'exact', 'working_on_it', 10), ('in_return_process', 'exact', 'working_on_it', 10),
+  ('in manifest', 'exact', 'working_on_it', 10), ('in_manifest', 'exact', 'working_on_it', 10), ('on hold', 'exact', 'working_on_it', 10),
+  ('received at hub', 'exact', 'shipment_at_hub', 10), ('received_at_hub', 'exact', 'shipment_at_hub', 10),
+  ('received at dc', 'exact', 'shipment_at_dc', 10),
+  -- Still waiting for the POD
+  ('tat breached', 'exact', 'pending', 10), ('pending for pod', 'exact', 'pending', 10), ('pod not received', 'exact', 'pending', 10),
+  ('pod not shared', 'exact', 'pending', 10), ('pod not shared within timeline', 'exact', 'pending', 10)
 on conflict (pattern, match_type) do nothing;
 
 -- ---------- Header aliases (normalised: lower case, letters and digits only) ----------
@@ -97,7 +115,7 @@ insert into public.column_aliases (alias, target_field) values
   ('podlinksmailsubjects','pod_link'),('podlinksmailsubject','pod_link'),('suborderno','order_id'),
   ('syedremakes','ignore'),('syedremarks','ignore'),('aseemremarks','ignore'),('assemremarks','ignore'),('tata1mg','ignore'),
   ('awbnumber','awb'),('rtsridername','rider_name'),('rtsriderid','rider_id'),('podimageurl','pod_link'),
-  ('podlinkreceived','pod_link'),('kamremarks','client_remark'),('hubtype','ignore'),('runsheetid','ignore'),('duplicates','ignore'),('lostmarkdate','ignore'),('sharedate','ignore')
+  ('podlinkreceived','pod_link'),('kamremarks','client_remark'),('nykaaremark','client_remark'),('sfxfinalremarks','team_remark'),('hubtype','ignore'),('runsheetid','ignore'),('duplicates','ignore'),('lostmarkdate','ignore'),('sharedate','ignore')
 on conflict (alias) do nothing;
 
 -- ---------- Clients ----------
@@ -116,7 +134,9 @@ insert into public.clients (name, code, aliases) values
   ('Firstcry',   'FCY', '{"First cry","FirstCry"}'),
   ('TATA 1MG',   'T1M', '{"Tata 1mg","1mg","1 MG"}'),
   ('CityMall',   'CTM', '{"City mall","Citymall"}'),
-  ('Meesho',     'MSH', '{"FTPL","Meesho FTPL","Fashnear"}')
+  ('Meesho',     'MSH', '{"FTPL","Meesho FTPL","Fashnear"}'),
+  ('Nykaa',      'NYK', '{"Nykaa Fashion","Nykaa E-retail"}'),
+  ('Limeroad',   'LMR', '{"Lime road","Limeroad - Vmart","Limeroad Vmart","LimeroadVmart","Vmart","V-Mart"}')
 on conflict (name) do nothing;
 
 -- ---------- Tracker tabs shared on 14 Sep 2026 ----------
@@ -196,7 +216,7 @@ insert into public.sheet_sources (workbook_id, workbook_name, sheet_name, defaul
      (select id from c where name='Shipdelight'), 'enrich', true, '[]'),
 
   ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Sheet1',
-     (select id from c where name='TataCliq'), 'cases', true, '[]'),
+     (select id from c where name='TataCliq'), 'cases', true, '[{"header":"Status","target":"shipment_status"},{"header":"POD status","target":"status_raw"}]'),
   ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Sheet14',
      (select id from c where name='TataCliq'), 'cases', false, '[]'),
   ('1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ', 'TATACLIQ - RTO/RTS PODs requirements', 'Sheet15',
@@ -212,5 +232,22 @@ insert into public.sheet_sources (workbook_id, workbook_name, sheet_name, defaul
   -- Meesho keeps one tab per day ("09-10-2026"): the pattern reads every date tab, newest first.
   ('1X4K_9efayzNdBCfKK68H4Ri_sITpBG4e-qEaCvK5HqQ', 'FTPL-MEESHO - RTO/RTS POD Escalations', '??-??-????',
      (select id from c where name='Meesho'), 'cases', true,
-     '[{"header":"PODstatus","target":"status_raw"},{"header":"status","target":"shipment_status"},{"header":"name","target":"hub"},{"header":"closed date","target":"ignore"}]')
+     '[{"header":"PODstatus","target":"status_raw"},{"header":"status","target":"shipment_status"},{"header":"name","target":"hub"},{"header":"closed date","target":"ignore"}]'),
+
+  -- Nykaa: long tab names are matched with * so a trailing space or a longer name still matches.
+  ('1FnKbeFeBP2AgMBR-EEJrYaNbq5hrHakZR3i0K_tH7Ro', 'SFX POD NYKAA', 'Nykaa - From april*',
+     (select id from c where name='Nykaa'), 'cases', true, '[]'),
+  ('1FnKbeFeBP2AgMBR-EEJrYaNbq5hrHakZR3i0K_tH7Ro', 'SFX POD NYKAA', 'Nykaa - From July*',
+     (select id from c where name='Nykaa'), 'cases', true, '[]'),
+  ('1FnKbeFeBP2AgMBR-EEJrYaNbq5hrHakZR3i0K_tH7Ro', 'SFX POD NYKAA', 'Nykaa- From Oct*',
+     (select id from c where name='Nykaa'), 'cases', true, '[]'),
+
+  ('1rHwB5xDdY-p8kZSGxPtmNRkdJSpRjHAM2_0QrIlQlho', 'Limeroad(Vmart) - RTO/RTS PODs - 2026', 'AUGUST',
+     (select id from c where name='Limeroad'), 'cases', true, '[]'),
+  ('1rHwB5xDdY-p8kZSGxPtmNRkdJSpRjHAM2_0QrIlQlho', 'Limeroad(Vmart) - RTO/RTS PODs - 2026', 'Rough sheet',
+     (select id from c where name='Limeroad'), 'enrich', true, '[]')
 on conflict (workbook_id, sheet_name) do nothing;
+
+-- Column choices added after a tab was first set up (only where nobody has changed the mapping yet).
+update public.sheet_sources set column_map = '[{"header":"Status","target":"shipment_status"},{"header":"POD status","target":"status_raw"}]'
+ where workbook_id = '1sSw1JAT1NBc2pnTE0u-anLFcmxYQJ5vDo837N-W-7AQ' and sheet_name = 'Sheet1' and column_map = '[]'::jsonb;

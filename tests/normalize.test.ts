@@ -164,8 +164,10 @@ describe('sheet normalisation (Velocity sample)', () => {
   });
   it('flags missing escalation dates and falls back to the mail subject', () => {
     const noDate = out.rows.find((x) => x.awb === 'R2111303762VEO')!;
-    expect(noDate.escalation_date).toBeNull();
+    // No date in the row: aged from the delivery date, still flagged as estimated.
+    expect(noDate.escalation_date).toBe(noDate.delivery_date);
     expect(noDate.escalation_date_estimated).toBe(true);
+    expect(noDate.extra.escalation_date_from).toBe('delivery_date');
     const fromSubject = out.rows.find((x) => x.awb === 'R2178493750VEO')!;
     expect(fromSubject.escalation_date).toBe('2026-09-11');
     expect(fromSubject.extra.escalation_date_from).toBe('mail_subject');
