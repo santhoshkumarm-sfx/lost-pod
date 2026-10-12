@@ -52,7 +52,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
         </div>
         <div className="flex gap-2">
           <a className="btn" href={`/api/export/cases${exportQs ? `${exportQs}&` : '?'}format=csv`}>Download CSV</a>
-          <a className="btn btn-primary" href="/portal/new">Add pending shipments</a>
+          <a className="btn btn-primary" href="/portal/new">Request POD</a>
         </div>
       </div>
       <Flash sp={sp} />

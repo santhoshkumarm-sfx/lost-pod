@@ -16,13 +16,15 @@ export interface CaseFilters {
   to: string;
   sla: string;        // '1' = TAT breached only
   reason: string;
+  value: string;      // 'missing' | 'set' — product value
+  otp: string;        // 'yes' | 'no' | 'unknown'
   sort: string;
   dir: 'asc' | 'desc';
   page: number;
   size: number;
 }
 
-export const SORTABLE = ['case_number', 'awb', 'client_display_name', 'escalation_date', 'aging_days', 'status_label', 'hub', 'updated_at', 'product_value', 'lost_approved_at'] as const;
+export const SORTABLE = ['case_number', 'awb', 'client_display_name', 'escalation_date', 'aging_days', 'status_label', 'hub', 'updated_at', 'product_value', 'final_value', 'lost_approved_at'] as const;
 
 export function parseCaseFilters(sp: Record<string, string | string[] | undefined>, defaults: Partial<CaseFilters> = {}): CaseFilters {
   const g = (k: string) => {
@@ -34,7 +36,8 @@ export function parseCaseFilters(sp: Record<string, string | string[] | undefine
   return {
     q: g('q'), client: g('client'), status: g('status'), category: g('category') || defaults.category || 'active',
     aging: g('aging'), hub: g('hub'), agent: g('agent'), poc: g('poc'), source: g('source'), from: g('from'), to: g('to'),
-    sla: g('sla'), reason: g('reason'), agemin: /^\d+$/.test(g('agemin')) ? g('agemin') : '', agemax: /^\d+$/.test(g('agemax')) ? g('agemax') : '',
+    sla: g('sla'), reason: g('reason'), value: ['missing', 'set'].includes(g('value')) ? g('value') : '',
+    otp: ['yes', 'no', 'unknown'].includes(g('otp')) ? g('otp') : '', agemin: /^\d+$/.test(g('agemin')) ? g('agemin') : '', agemax: /^\d+$/.test(g('agemax')) ? g('agemax') : '',
     sort: (SORTABLE as readonly string[]).includes(sort) ? sort : defaults.sort || 'aging_days',
     dir: g('dir') === 'asc' ? 'asc' : g('dir') === 'desc' ? 'desc' : defaults.dir || 'desc',
     page: Math.max(1, Number(g('page')) || 1),
@@ -73,6 +76,8 @@ export function applyCaseFilters(q: any, f: CaseFilters, opts: { dateField?: 'es
     else if (f.category === 'pending_pod' || f.category === 'critical') {
       q = q.eq('status_category', 'open').neq('team_status', 'pod_shared').neq('pod_status', 'shared');
       if (f.category === 'critical') q = q.gt('aging_days', opts.criticalDays ?? 7);
+    } else if (f.category === 'complaints') {
+      q = q.eq('complaint_open', true);
     } else if (f.category === 'pod_done') {
       q = q.or('status_category.eq.closed,and(status_category.eq.open,or(team_status.eq.pod_shared,pod_status.eq.shared))');
     } else q = q.eq('status_category', f.category);
@@ -86,6 +91,11 @@ export function applyCaseFilters(q: any, f: CaseFilters, opts: { dateField?: 'es
   if (f.source) q = q.eq('source_type', f.source);
   if (f.reason) q = q.ilike('reason', `%${safe(f.reason)}%`);
   if (f.sla === '1') q = q.eq('sla_breached', true);
+  if (f.value === 'missing') q = q.is('final_value', null);
+  if (f.value === 'set') q = q.not('final_value', 'is', null);
+  if (f.otp === 'yes') q = q.eq('otp_delivered', true);
+  if (f.otp === 'no') q = q.eq('otp_delivered', false);
+  if (f.otp === 'unknown') q = q.is('otp_delivered', null);
   if (/^\d{4}-\d{2}-\d{2}$/.test(f.from)) q = q.gte(dateField, dateField === 'lost_approved_at' ? `${f.from}T00:00:00+05:30` : f.from);
   if (/^\d{4}-\d{2}-\d{2}$/.test(f.to)) q = q.lte(dateField, dateField === 'lost_approved_at' ? `${f.to}T23:59:59+05:30` : f.to);
   return q;
@@ -116,7 +126,7 @@ export async function getCriticalDays(sb: any): Promise<number> {
 export function statsFilter(f: CaseFilters, extra: Record<string, string> = {}): Record<string, string> {
   return {
     q: f.q, client: f.client, status: f.status, category: f.category, aging: f.aging, hub: f.hub, agent: f.agent, poc: f.poc,
-    source: f.source, from: f.from, to: f.to, sla: f.sla, reason: f.reason, agemin: f.agemin, agemax: f.agemax, ...extra,
+    source: f.source, from: f.from, to: f.to, sla: f.sla, reason: f.reason, agemin: f.agemin, agemax: f.agemax, value: f.value, otp: f.otp, ...extra,
   };
 }
 

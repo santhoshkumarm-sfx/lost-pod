@@ -9,7 +9,7 @@ import { SubmitButton } from '@/components/buttons';
 
 export const metadata = { title: 'Audit log' };
 
-const TABLES = ['clients', 'profiles', 'client_pocs', 'lost_approvals', 'case_private', 'sheet_sources', 'app_settings', 'status_master', 'status_mappings', 'column_aliases', 'aging_buckets'];
+const TABLES = ['clients', 'profiles', 'client_pocs', 'lost_approvals', 'lost_approvers', 'awb_values', 'pod_complaints', 'case_private', 'sheet_sources', 'app_settings', 'status_master', 'status_mappings', 'column_aliases', 'aging_buckets'];
 
 function diff(oldD: Record<string, unknown> | null, newD: Record<string, unknown> | null): string {
   if (!oldD) return 'created';
@@ -27,7 +27,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Search
   const size = 50;
   const supabase = await createClient();
   const tabs = [
-    { key: 'config', label: 'Settings, users and approvals' },
+    { key: 'config', label: 'Users, settings, values and approvals' },
     { key: 'cases', label: 'Case changes' },
     { key: 'removed', label: 'Removed cases' },
   ];

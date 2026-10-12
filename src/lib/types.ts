@@ -21,6 +21,10 @@ export interface CaseRow {
   pod_link: string | null;
   product_name: string | null;
   product_value: number | null;
+  final_value: number | null;          // Admin value per AWB, else the tracker's
+  otp_delivered: boolean | null;
+  value_source: 'manual' | 'upload' | 'tracker' | null;
+  complaint_open: boolean;
   order_id: string | null;
   rider_name: string | null;
   rider_id: string | null;
@@ -72,4 +76,4 @@ export interface ClientOption {
 }
 
 export const CASE_LIST_COLUMNS =
-  'id, case_number, awb, client_id, client_display_name, poc_name, escalation_date, escalation_date_estimated, hub, location, team_status, status_label, status_category, status_color, aging_days, aging_bucket, sla_breached, agent_display_name, source_type, team_remark, pod_status, updated_at, product_value, lost_approved_at, reason';
+  'id, case_number, awb, client_id, client_display_name, poc_name, escalation_date, escalation_date_estimated, hub, location, team_status, status_label, status_category, status_color, aging_days, aging_bucket, sla_breached, agent_display_name, source_type, team_remark, pod_status, updated_at, product_value, lost_approved_at, reason, final_value, otp_delivered, complaint_open';

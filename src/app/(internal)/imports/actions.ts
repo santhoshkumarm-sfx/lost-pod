@@ -159,3 +159,34 @@ export async function deleteStatusMapping(fd: FormData) {
     return 'Status mapping removed.';
   });
 }
+
+/** POD sheets (read only): copy new rows into the POD index now. */
+export async function syncPodSheets(fd: FormData) {
+  await requireInternal();
+  const full = str(fd, 'full') === '1';
+  await done('/imports#pod-sheets', async () => {
+    const { syncPodIndex } = await import('@/lib/pod/sheets');
+    const res = await syncPodIndex(createAdminClient(), { deadline: Date.now() + 240_000, full });
+    const added = res.reduce((n, r) => n + r.added, 0);
+    const failed = res.filter((r) => r.message.startsWith('Failed') || r.message.startsWith('Cannot'));
+    return `POD sheets checked: ${res.filter((r) => r.links).length} tab(s) with POD links, ${added} new link row(s).${failed.length ? ` Problems: ${failed.map((f) => `${f.workbook} › ${f.tab}: ${f.message}`).join('; ')}` : ''}`;
+  });
+}
+
+/** Admin: the list of POD workbooks (links). */
+export async function savePodWorkbooks(fd: FormData) {
+  await requireAdmin();
+  await done('/imports#pod-sheets', async () => {
+    const lines = str(fd, 'workbooks').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    const list = lines.map((l) => {
+      const [first, ...rest] = l.split(/\s*\|\s*/);
+      const id = parseWorkbookId(first) ?? parseWorkbookId(rest.join('|'));
+      if (!id) throw new Error(`Not a Google Sheets link: ${l}`);
+      const name = (parseWorkbookId(first) ? rest.join(' ') : first).trim() || 'POD sheet';
+      return { id, name };
+    });
+    const sb = await createClient();
+    must(await sb.from('app_settings').update({ value: list }).eq('key', 'pod_workbooks').select('key'));
+    return `${list.length} POD workbook(s) saved. They are read on the next sync; nothing is written to them.`;
+  });
+}

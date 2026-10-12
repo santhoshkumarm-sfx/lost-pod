@@ -61,6 +61,8 @@ export interface CaseExportRow {
   poc_name: string | null;
   product_name: string | null;
   product_value: number | null;
+  final_value?: number | null;
+  otp_delivered?: boolean | null;
   closure_date: string | null;
   final_aging_days: number | null;
   lost_approved_at: string | null;
@@ -68,4 +70,4 @@ export interface CaseExportRow {
 }
 
 export const CASE_EXPORT_COLUMNS =
-  'case_number, awb, client_display_name, source_type, source_workbook, source_sheet, email_subject, escalation_date, escalation_date_estimated, aging_days, aging_bucket, status_label, status_category, hub, location, delivery_date, seller_name, complaint_type, reason, priority, pod_status, pod_link, team_remark, client_remark, agent_display_name, poc_name, product_name, product_value, closure_date, final_aging_days, lost_approved_at, sla_breached';
+  'case_number, awb, client_display_name, source_type, source_workbook, source_sheet, email_subject, escalation_date, escalation_date_estimated, aging_days, aging_bucket, status_label, status_category, hub, location, delivery_date, seller_name, complaint_type, reason, priority, pod_status, pod_link, team_remark, client_remark, agent_display_name, poc_name, product_name, product_value, final_value, otp_delivered, closure_date, final_aging_days, lost_approved_at, sla_breached';

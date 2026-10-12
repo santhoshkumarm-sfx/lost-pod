@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { requirePoc } from '@/lib/auth';
 import { errorText, str, withFlash } from '@/lib/flash';
 import { requestLostForCases } from '@/lib/lost';
-import { addPendingCases } from '@/lib/cases/add';
+import { addPendingCases, submitMessage } from '@/lib/cases/add';
 import { parseUpload, type UploadRow } from '@/lib/cases/upload';
 import { cleanAwb } from '@/lib/normalize/awb';
 import { strOrNull } from '@/lib/flash';
@@ -63,6 +63,22 @@ async function pocClient(fd: FormData): Promise<string> {
   return chosen;
 }
 
+/** Client reports a problem with a shared POD: the case is reopened for the team. */
+export async function pocComplaint(fd: FormData) {
+  await requirePoc();
+  const id = str(fd, 'id');
+  let dest = withFlash(`/portal/cases/${id}`, 'ok', 'Thanks — the Shadowfax team will check the POD and share a correct one.');
+  try {
+    const sb = await createClient();
+    const { data, error } = await sb.rpc('raise_pod_complaint', { p_case_ids: [id], p_note: str(fd, 'note') });
+    if (error) throw error;
+    if (!data) throw new Error('A problem is already reported for this shipment, or it cannot be reopened.');
+  } catch (e) {
+    dest = withFlash(`/portal/cases/${id}`, 'error', errorText(e));
+  }
+  redirect(dest);
+}
+
 /** Client adds shipments that still need a POD, by hand. */
 export async function pocAddCases(fd: FormData) {
   const user = await requirePoc();
@@ -79,7 +95,8 @@ export async function pocAddCases(fd: FormData) {
     const common = { hub: strOrNull(fd, 'hub') ?? undefined, location: strOrNull(fd, 'location') ?? undefined, reason: strOrNull(fd, 'reason') ?? undefined, remark: strOrNull(fd, 'remark') ?? undefined };
     const rows: UploadRow[] = awbs.map((awb, i) => ({ row: i + 1, awb, escalation_date: esc, ...common }));
     const r = await addPendingCases({ user, clientId, rows, total: rows.length, method: 'manual' });
-    dest = withFlash(`/portal/new?upload=${r.uploadId ?? ''}`, r.created ? 'ok' : 'error', `${r.created} shipment(s) added${r.skipped ? `, ${r.skipped} not added — see why below` : ''}. Shadowfax will share the POD or update you.`);
+    const [kind, msg] = submitMessage(r);
+    dest = withFlash(`/portal/new?upload=${r.uploadId ?? ''}`, kind, msg);
   } catch (e) {
     dest = withFlash('/portal/new', 'error', errorText(e));
   }
@@ -97,7 +114,8 @@ export async function pocUploadCases(fd: FormData) {
     if (file.size > 4 * 1024 * 1024) throw new Error('The file is larger than 4 MB. Split it into smaller files.');
     const parsed = await parseUpload(await file.arrayBuffer(), { forClient: true, clients: [], today: todayIn() });
     const r = await addPendingCases({ user, clientId, rows: parsed.rows, parseProblems: parsed.problems, total: parsed.total, method: 'excel', file });
-    dest = withFlash(`/portal/new?upload=${r.uploadId ?? ''}`, r.created ? 'ok' : 'error', `${r.created} shipment(s) added${r.skipped ? `, ${r.skipped} row(s) not added — see why below` : ''}.`);
+    const [kind, msg] = submitMessage(r);
+    dest = withFlash(`/portal/new?upload=${r.uploadId ?? ''}`, kind, msg);
   } catch (e) {
     dest = withFlash('/portal/new', 'error', errorText(e));
   }

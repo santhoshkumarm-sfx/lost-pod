@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { CaseFilters } from '@/lib/cases/filters';
 import { clientStatusLabel } from '@/lib/format';
 
-type FieldKey = 'q' | 'client' | 'category' | 'status' | 'aging' | 'hub' | 'agent' | 'poc' | 'source' | 'sla' | 'reason' | 'dates';
+type FieldKey = 'q' | 'client' | 'category' | 'status' | 'aging' | 'hub' | 'agent' | 'poc' | 'source' | 'sla' | 'reason' | 'dates' | 'value';
 
 export function CaseFilterForm({ f, fields, more = [], clients, statuses, buckets, agents, pocs, action, dateLabel = 'Escalated', clearHref, clientView, criticalDays = 7, hidden = {} }: {
   f: CaseFilters;
@@ -25,7 +25,7 @@ export function CaseFilterForm({ f, fields, more = [], clients, statuses, bucket
   const extra = (k: FieldKey) => more.includes(k);
   const used: Record<FieldKey, boolean> = {
     q: !!f.q, client: !!f.client, category: false, status: !!f.status, aging: !!f.aging || !!f.agemin || !!f.agemax, hub: !!f.hub, agent: !!f.agent,
-    poc: !!f.poc, source: !!f.source, sla: f.sla === '1', reason: !!f.reason, dates: !!(f.from || f.to),
+    poc: !!f.poc, source: !!f.source, sla: f.sla === '1', reason: !!f.reason, dates: !!(f.from || f.to), value: !!(f.value || f.otp),
   };
   const open = more.some((k) => used[k]);
   const render = (has: (k: FieldKey) => boolean) => (
@@ -58,6 +58,7 @@ export function CaseFilterForm({ f, fields, more = [], clients, statuses, bucket
             <option value="lost_pending">{clientView ? 'Loss requested — under review' : 'Awaiting Lost approval'}</option>
             <option value="lost">{clientView ? 'Loss accepted' : 'Lost'}</option>
             <option value="closed">Closed</option>
+            {!clientView && <option value="complaints">POD complaints (open)</option>}
             <option value="all">Everything</option>
           </select>
         </label>
@@ -121,6 +122,22 @@ export function CaseFilterForm({ f, fields, more = [], clients, statuses, bucket
           <span className="label">Reason contains</span>
           <input name="reason" defaultValue={f.reason} className="input w-40" />
         </label>
+      )}
+      {has('value') && (
+        <>
+          <label>
+            <span className="label">Product value</span>
+            <select name="value" defaultValue={f.value} className="input w-32">
+              <option value="">Any</option><option value="missing">Not set</option><option value="set">Set</option>
+            </select>
+          </label>
+          <label>
+            <span className="label">OTP delivered</span>
+            <select name="otp" defaultValue={f.otp} className="input w-28">
+              <option value="">Any</option><option value="yes">Yes</option><option value="no">No</option><option value="unknown">Not set</option>
+            </select>
+          </label>
+        </>
       )}
       {has('dates') && (
         <>

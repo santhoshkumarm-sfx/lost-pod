@@ -8,11 +8,13 @@ export default async function InternalLayout({ children }: { children: React.Rea
   const admin = isAdminRole(user.role);
   const supabase = await createClient();
   const { data: counts } = await supabase.rpc('sidebar_counts');
-  const c = (counts ?? {}) as { unread?: number; emails?: number; lost_requests?: number };
+  const c = (counts ?? {}) as { unread?: number; emails?: number; lost_requests?: number; complaints?: number };
 
   const work: NavItem[] = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/cases', label: 'Cases' },
+    { href: '/cases/upload', label: 'POD requests' },
+    { href: '/cases?category=complaints', label: 'POD complaints', badge: c.complaints ?? 0 },
     { href: '/email-escalations', label: 'Email escalations', badge: c.emails ?? 0 },
     { href: '/imports', label: 'Google Sheet imports' },
     { href: '/lost-approval', label: 'Lost approval', badge: c.lost_requests ?? 0 },
@@ -23,6 +25,7 @@ export default async function InternalLayout({ children }: { children: React.Rea
     ...(admin ? [{ href: '/users', label: 'Users' }] : []),
   ];
   const admin_: NavItem[] = [
+    ...(admin ? [{ href: '/values', label: 'Product value & OTP' }] : []),
     ...(admin ? [{ href: '/reports', label: 'Reports' }] : []),
     { href: '/data-quality', label: 'Data quality' },
     ...(admin ? [{ href: '/audit', label: 'Audit log' }, { href: '/settings', label: 'Settings' }] : []),

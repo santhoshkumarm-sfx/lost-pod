@@ -29,7 +29,8 @@ export function caseRowForExport(c: CaseExportRow): Record<string, unknown> {
     aging_bucket: c.aging_bucket, status: c.status_label, sla_breached: c.sla_breached ? 'Yes' : '', hub: c.hub, location: c.location,
     delivery_date: d(c.delivery_date), seller_name: c.seller_name, complaint_type: c.complaint_type, reason: c.reason,
     priority: c.priority, pod_status: c.pod_status, pod_link: c.pod_link, team_remark: c.team_remark, client_remark: c.client_remark,
-    agent: c.agent_display_name, poc: c.poc_name, product_name: c.product_name, product_value: c.product_value === null ? null : Number(c.product_value),
+    agent: c.agent_display_name, poc: c.poc_name, product_name: c.product_name, product_value: (c.final_value ?? c.product_value) == null ? null : Number(c.final_value ?? c.product_value),
+    otp_delivered: c.otp_delivered == null ? '' : c.otp_delivered ? 'Yes' : 'No',
     closure_date: d(c.closure_date), final_aging_days: c.final_aging_days, lost_approved_at: d(c.lost_approved_at),
   };
 }
@@ -61,6 +62,7 @@ export const CASE_SHEET_COLUMNS = [
   { header: 'Client POC', key: 'poc', width: 16 },
   { header: 'Product', key: 'product_name', width: 20 },
   { header: 'Product value', key: 'product_value', width: 12, numFmt: '#,##0' },
+  { header: 'OTP delivered', key: 'otp_delivered', width: 10 },
   { header: 'Closure date', key: 'closure_date', width: 12, numFmt: 'dd-mmm-yyyy' },
   { header: 'Final aging', key: 'final_aging_days', width: 10 },
   { header: 'Lost approved', key: 'lost_approved_at', width: 16, numFmt: 'dd-mmm-yyyy hh:mm' },
@@ -124,7 +126,7 @@ export async function buildReportWorkbook(data: DailyReportData, cases: CaseExpo
 }
 
 /** Columns a client POC may download (no agent, internal source references or seller data). */
-const PORTAL_KEYS = new Set(['awb', 'escalation_date', 'aging_days', 'aging_bucket', 'status', 'hub', 'location', 'delivery_date', 'complaint_type', 'reason', 'pod_status', 'pod_link', 'team_remark', 'client_remark', 'closure_date', 'final_aging_days', 'lost_approved_at']);
+const PORTAL_KEYS = new Set(['awb', 'escalation_date', 'aging_days', 'aging_bucket', 'status', 'hub', 'location', 'delivery_date', 'complaint_type', 'reason', 'pod_status', 'pod_link', 'team_remark', 'client_remark', 'closure_date', 'final_aging_days', 'lost_approved_at', 'product_value', 'otp_delivered']);
 export const PORTAL_SHEET_COLUMNS = CASE_SHEET_COLUMNS.filter((c) => PORTAL_KEYS.has(c.key));
 
 /** Generic table export (cases list, Lost list). */

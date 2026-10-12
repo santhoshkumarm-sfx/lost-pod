@@ -281,7 +281,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         action="/dashboard"
         clearHref="/dashboard"
         fields={['q', 'client', 'agent']}
-        more={['hub', 'poc', 'source', 'dates']}
+        more={['hub', 'poc', 'source', 'dates', 'value']}
         clients={clients}
         agents={agents}
         criticalDays={s.critical_days}

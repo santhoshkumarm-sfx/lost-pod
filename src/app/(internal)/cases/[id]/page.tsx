@@ -8,7 +8,7 @@ import { fmtDate, fmtDateTime, fmtInr, SOURCE_LABELS } from '@/lib/format';
 import { getAgents, getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 import type { CaseRow } from '@/lib/types';
-import { addComment, assignToMe, decideLost, reopenLost, requestLost, saveInternalNote, setDeleted, updateCase } from '../actions';
+import { addComment, assignToMe, decideLost, reopenLost, requestLost, resolveComplaint, saveAwbValue, saveInternalNote, setDeleted, shareSheetPod, updateCase } from '../actions';
 
 export const metadata = { title: 'Case' };
 
@@ -22,8 +22,9 @@ const FIELD_NAMES: Record<string, string> = {
 const ACTION_NAMES: Record<string, string> = {
   created: 'Case created', lost_requested: 'Lost requested', lost_approved: 'Lost approved', lost_rejected: 'Lost request rejected',
   lost_sent_back: 'Lost request sent back', lost_reopened: 'Taken out of Lost', email_linked: 'Email linked',
+  pod_complaint: 'POD complaint raised', complaint_resolved: 'POD complaint solved',
 };
-const SOURCE_NAMES: Record<string, string> = { app: 'dashboard', sheet: 'Google Sheet', email: 'email', poc: 'client portal' };
+const SOURCE_NAMES: Record<string, string> = { app: 'dashboard', sheet: 'Google Sheet', email: 'email', poc: 'client portal', pod_sheet: 'POD sheet' };
 
 export default async function CasePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
   const user = await requireInternal();
@@ -38,7 +39,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
   const { data: approver } = await supabase.rpc('can_approve_lost', { p_client_id: c.client_id });
   const canApprove = approver === true;
 
-  const [priv, updates, comments, approvals, sources, statuses, agents, others] = await Promise.all([
+  const [priv, updates, comments, approvals, sources, statuses, agents, others, complaints, sheetPods] = await Promise.all([
     supabase.from('case_private').select('internal_remark, updated_at').eq('case_id', id).maybeSingle(),
     supabase.from('case_updates').select('*').eq('case_id', id).order('created_at', { ascending: false }).limit(200),
     supabase.from('case_comments').select('*').eq('case_id', id).order('created_at'),
@@ -47,10 +48,17 @@ export default async function CasePage({ params, searchParams }: { params: Promi
     getStatuses(supabase),
     getAgents(supabase),
     supabase.from('v_cases').select('id, case_number, escalation_date, status_label, status_color, client_display_name').eq('awb', c.awb).neq('id', id),
+    supabase.from('pod_complaints').select('*').eq('case_id', id).order('raised_at', { ascending: false }),
+    supabase.from('pod_index').select('pod_link, sheet_name, scan_date').eq('awb', c.awb).limit(10),
   ]);
+  const openComplaint = (complaints.data ?? []).find((k) => k.status === 'open');
   const userIds = new Set<string>();
   (updates.data ?? []).forEach((u) => u.user_id && userIds.add(u.user_id));
   (comments.data ?? []).forEach((u) => u.user_id && userIds.add(u.user_id));
+  (complaints.data ?? []).forEach((k) => {
+    if (k.raised_by) userIds.add(k.raised_by);
+    if (k.resolved_by) userIds.add(k.resolved_by);
+  });
   (approvals.data ?? []).forEach((a) => {
     if (a.requested_by) userIds.add(a.requested_by);
     if (a.decided_by) userIds.add(a.decided_by);
@@ -122,6 +130,34 @@ export default async function CasePage({ params, searchParams }: { params: Promi
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(320px,2fr)]">
         <div className="space-y-5">
+          {openComplaint && (
+            <Panel title="POD complaint — open" className="border-age-4/60">
+              <p className="mb-3">
+                <strong>{who(openComplaint.raised_by)}</strong> on {fmtDateTime(openComplaint.raised_at)}: “{openComplaint.note}”
+                {openComplaint.old_link && <> · <a href={openComplaint.old_link} target="_blank" rel="noreferrer">POD they complained about</a></>}
+              </p>
+              <form action={resolveComplaint} className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <input type="hidden" name="id" value={c.id} />
+                <Field label="Correct POD link (optional)"><input name="pod_link" type="url" className="input" /></Field>
+                <Field label="Note to the client"><input name="resolution" className="input" placeholder="e.g. Correct POD shared" /></Field>
+                <SubmitButton className="btn btn-primary">Mark solved</SubmitButton>
+              </form>
+            </Panel>
+          )}
+          {!!sheetPods.data?.length && !(c.pod_status === 'shared' && sheetPods.data.some((p) => p.pod_link === c.pod_link)) && sheetPods.data.some((p) => p.pod_link !== openComplaint?.old_link) && (
+            <div className="rounded border border-age-0/40 bg-[#EAF5F3] px-3 py-2 text-sm">
+              POD found in the POD sheets:{' '}
+              {sheetPods.data.filter((p) => p.pod_link !== openComplaint?.old_link).map((p, i) => (
+                <form key={p.pod_link} action={shareSheetPod} className="inline">
+                  {i ? ' · ' : ''}
+                  <a href={p.pod_link} target="_blank" rel="noreferrer">{p.sheet_name}{p.scan_date ? ` ${fmtDate(p.scan_date)}` : ''}</a>{' '}
+                  <input type="hidden" name="id" value={c.id} />
+                  <input type="hidden" name="pod_link" value={p.pod_link} />
+                  {c.status_category === 'open' && <SubmitButton className="btn btn-sm">Share this POD</SubmitButton>}
+                </form>
+              ))}
+            </div>
+          )}
           <Panel title="Work on this case">
             {!canEdit && <p className="mb-3 text-ink-soft">Assigned to {c.agent_display_name}. Only they or an admin can edit it.</p>}
             <form action={updateCase}>
@@ -166,9 +202,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <Field label="Location"><input name="location" defaultValue={c.location ?? ''} className="input" /></Field>
                 <Field label="Complaint type"><input name="complaint_type" defaultValue={c.complaint_type ?? ''} className="input" /></Field>
                 <Field label="Reason" className="md:col-span-3"><input name="reason" defaultValue={c.reason ?? ''} className="input" /></Field>
-                <Field label="Product"><input name="product_name" defaultValue={c.product_name ?? ''} className="input" /></Field>
-                <Field label="Product value (₹)"><input name="product_value" defaultValue={c.product_value ?? ''} inputMode="decimal" className="input" /></Field>
-                <div />
+                <Field label="Product" className="md:col-span-3"><input name="product_name" defaultValue={c.product_name ?? ''} className="input" /></Field>
                 <Field label="Shadowfax remark — visible to the client" className="md:col-span-3">
                   <textarea name="team_remark" defaultValue={c.team_remark ?? ''} className="input" />
                 </Field>
@@ -178,6 +212,29 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <div className="md:col-span-3"><SubmitButton>Save changes</SubmitButton></div>
               </fieldset>
             </form>
+          </Panel>
+
+          <Panel title="Product value and OTP (per AWB)">
+            <p className="mb-3">
+              Product value: <strong>{c.final_value != null ? fmtInr(c.final_value) : 'not set'}</strong>
+              {c.value_source && <span className="text-ink-soft"> ({c.value_source === 'tracker' ? 'from the tracker' : c.value_source === 'upload' ? 'from an Excel upload' : 'set by hand'})</span>}
+              {' · '}OTP delivered: <strong>{c.otp_delivered == null ? 'not set' : c.otp_delivered ? 'Yes' : 'No'}</strong>
+            </p>
+            {admin ? (
+              <form action={saveAwbValue} className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <input type="hidden" name="id" value={c.id} />
+                <input type="hidden" name="awb" value={c.awb} />
+                <Field label="Product value (₹)"><input name="product_value" inputMode="decimal" defaultValue={c.value_source === 'tracker' ? '' : c.final_value ?? ''} className="input" /></Field>
+                <Field label="OTP delivered">
+                  <select name="otp_delivered" defaultValue={c.otp_delivered == null ? '' : c.otp_delivered ? 'yes' : 'no'} className="input">
+                    <option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option>
+                  </select>
+                </Field>
+                <SubmitButton className="btn">Save for this AWB</SubmitButton>
+              </form>
+            ) : (
+              <p className="text-xs text-ink-soft">An Admin or Super Admin can set these (here, or for many AWBs at once under Product value &amp; OTP).</p>
+            )}
           </Panel>
 
           <Panel title="Lost">

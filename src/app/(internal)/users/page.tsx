@@ -1,11 +1,11 @@
 import { SubmitButton } from '@/components/buttons';
 import { Field, Flash, PageHeader, Panel } from '@/components/ui';
 import { requireAdmin, ROLE_LABELS, type Role } from '@/lib/auth';
-import type { SearchParams } from '@/lib/flash';
+import { param, type SearchParams } from '@/lib/flash';
 import { fmtDate } from '@/lib/format';
 import { getClients } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
-import { changeRole, createUser, resetPassword, setActive, setApprover } from './actions';
+import { changeRole, createUser, removeUser, resetPassword, restoreUser, setActive, setApprover } from './actions';
 
 export const metadata = { title: 'Users' };
 
@@ -13,8 +13,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
   const me = await requireAdmin();
   const sp = await searchParams;
   const supabase = await createClient();
+  const showRemoved = param(sp, 'removed') === '1';
+  let usersQ = supabase.from('profiles').select('*').order('role').order('full_name');
+  usersQ = showRemoved ? usersQ.not('removed_at', 'is', null) : usersQ.is('removed_at', null);
   const [usersRes, clients, links, approversRes] = await Promise.all([
-    supabase.from('profiles').select('*').order('role').order('full_name'),
+    usersQ,
     getClients(supabase),
     supabase.from('client_pocs').select('user_id, clients(name)').not('user_id', 'is', null),
     supabase.from('lost_approvers').select('user_id, client_id'),
@@ -37,7 +40,11 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
     (links.data ?? []).filter((l: any) => l.user_id === uid).map((l: any) => l.clients?.name).filter(Boolean).join(', ');
   return (
     <>
-      <PageHeader title="Users" sub="Logins for the internal team and client POCs. Roles are enforced by the database, not just by this screen." />
+      <PageHeader
+        title={showRemoved ? 'Removed users' : 'Users'}
+        sub="Logins for the internal team and client POCs. Admins add and remove internal users and client POCs; only a Super Admin manages Super Admins. Every change is in the Audit log."
+        actions={<a href={showRemoved ? '/users' : '/users?removed=1'} className="btn btn-ghost">{showRemoved ? 'Back to users' : 'Show removed users'}</a>}
+      />
       <Flash sp={sp} />
       <section className="panel tbl-wrap mb-5">
         <table className="tbl">
@@ -107,10 +114,23 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
                             {u.is_active ? 'Deactivate' : 'Activate'}
                           </SubmitButton>
                         </form>
-                        <form action={resetPassword}>
-                          <input type="hidden" name="id" value={u.id} />
-                          <SubmitButton className="btn btn-sm btn-ghost" pending="Sending…">Reset password</SubmitButton>
-                        </form>
+                        {u.removed_at ? (
+                          <form action={restoreUser}>
+                            <input type="hidden" name="id" value={u.id} />
+                            <SubmitButton className="btn btn-sm">Restore</SubmitButton>
+                          </form>
+                        ) : (
+                          <>
+                            <form action={resetPassword}>
+                              <input type="hidden" name="id" value={u.id} />
+                              <SubmitButton className="btn btn-sm btn-ghost" pending="Sending…">Reset password</SubmitButton>
+                            </form>
+                            <form action={removeUser}>
+                              <input type="hidden" name="id" value={u.id} />
+                              <SubmitButton className="btn btn-sm btn-ghost text-age-5" confirm={`Remove ${u.email}? They cannot sign in any more and disappear from the lists. Their history stays in the Audit log; you can restore them under "Show removed users".`}>Remove</SubmitButton>
+                            </form>
+                          </>
+                        )}
                       </div>
                     )}
                   </td>

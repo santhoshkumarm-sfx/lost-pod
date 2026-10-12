@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { StatusOption } from './types';
 
 export async function getClients(sb: SupabaseClient, activeOnly = false) {
-  let q = sb.from('clients').select('id, name, is_active').order('name');
+  let q = sb.from('clients').select('id, name, is_active').is('removed_at', null).order('name');
   if (activeOnly) q = q.eq('is_active', true);
   return ((await q).data ?? []) as { id: string; name: string; is_active: boolean }[];
 }

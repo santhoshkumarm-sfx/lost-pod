@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAdmin, type Role } from '@/lib/auth';
 import { errorText, must, str, strOrNull, withFlash } from '@/lib/flash';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { assertCanManage, createLogin, ROLES, sendPasswordReset, setLoginActive, setLoginRole } from '@/lib/users';
 
@@ -19,9 +20,45 @@ async function done(fn: () => Promise<string>): Promise<never> {
 
 async function target(id: string) {
   const sb = await createClient();
-  return must(await sb.from('profiles').select('id, email, full_name, role, is_active').eq('id', id).single()) as {
-    id: string; email: string; full_name: string | null; role: Role; is_active: boolean;
+  return must(await sb.from('profiles').select('id, email, full_name, role, is_active, removed_at').eq('id', id).single()) as {
+    id: string; email: string; full_name: string | null; role: Role; is_active: boolean; removed_at: string | null;
   };
+}
+
+async function log(actor: { id: string; email: string }, id: string, action: string, data: Record<string, unknown>) {
+  await createAdminClient().from('audit_logs').insert({ table_name: 'profiles', record_id: id, action, user_id: actor.id, new_data: { ...data, by: actor.email } });
+}
+
+/** Remove a user: cannot sign in, hidden from lists, POC links switched off. History is kept (audit log). */
+export async function removeUser(fd: FormData) {
+  const actor = await requireAdmin();
+  await done(async () => {
+    const t = await target(str(fd, 'id'));
+    assertCanManage(actor, t.id, t.role, null);
+    await setLoginActive(t.id, false);
+    const admin = createAdminClient();
+    const res = await admin.from('profiles').update({ removed_at: new Date().toISOString() }).eq('id', t.id);
+    if (res.error) throw new Error(res.error.message);
+    await admin.from('client_pocs').update({ is_active: false }).eq('user_id', t.id);
+    await admin.from('lost_approvers').delete().eq('user_id', t.id);
+    await log(actor, t.id, 'removed', { email: t.email });
+    return `${t.full_name ?? t.email} removed.`;
+  });
+}
+
+export async function restoreUser(fd: FormData) {
+  const actor = await requireAdmin();
+  await done(async () => {
+    const t = await target(str(fd, 'id'));
+    assertCanManage(actor, t.id, t.role, null);
+    const admin = createAdminClient();
+    const res = await admin.from('profiles').update({ removed_at: null }).eq('id', t.id);
+    if (res.error) throw new Error(res.error.message);
+    await setLoginActive(t.id, true);
+    await admin.from('client_pocs').update({ is_active: true }).eq('user_id', t.id);
+    await log(actor, t.id, 'restored', { email: t.email });
+    return `${t.full_name ?? t.email} restored and can sign in again.`;
+  });
 }
 
 export async function createUser(fd: FormData) {
@@ -61,6 +98,7 @@ export async function changeRole(fd: FormData) {
     if (!ROLES.includes(role)) throw new Error('Unknown role.');
     assertCanManage(actor, t.id, t.role, role);
     await setLoginRole(t.id, role);
+    await log(actor, t.id, 'role changed', { email: t.email, from: t.role, to: role });
     return `${t.full_name ?? t.email} is now ${role.replace('_', ' ')}.`;
   });
 }
@@ -72,6 +110,7 @@ export async function setActive(fd: FormData) {
     assertCanManage(actor, t.id, t.role, null);
     const active = str(fd, 'active') === '1';
     await setLoginActive(t.id, active);
+    await log(actor, t.id, active ? 'activated' : 'deactivated', { email: t.email });
     return active ? `${t.email} can sign in again.` : `${t.email} is deactivated and signed out everywhere.`;
   });
 }

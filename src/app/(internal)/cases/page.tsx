@@ -6,7 +6,7 @@ import { isAdminRole, requireInternal } from '@/lib/auth';
 import { applyCaseFilters, filtersToQuery, getCriticalDays, parseCaseFilters, statsFilter, type PodStats } from '@/lib/cases/filters';
 import { PodTiles } from '@/components/pod';
 import type { SearchParams } from '@/lib/flash';
-import { fmtDate } from '@/lib/format';
+import { fmtInr, fmtDate } from '@/lib/format';
 import { getAgents, getBuckets, getClients, getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 import { CASE_LIST_COLUMNS, type CaseRow } from '@/lib/types';
@@ -57,7 +57,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
         action="/cases"
         clearHref="/cases"
         fields={['q', 'client', 'category', 'agent']}
-        more={['status', 'aging', 'hub', 'source', 'dates', 'sla']}
+        more={['status', 'aging', 'hub', 'source', 'dates', 'sla', 'value']}
         criticalDays={criticalDays}
         clients={clients}
         statuses={statuses}
@@ -103,6 +103,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
                 <SortHeader label="Aging" col="aging_days" sort={f.sort} dir={f.dir} hrefFor={(c, d) => href({ sort: c, dir: d, page: 1 })} />
                 <SortHeader label="Status" col="status_label" sort={f.sort} dir={f.dir} hrefFor={(c, d) => href({ sort: c, dir: d, page: 1 })} />
                 <SortHeader label="Hub / location" col="hub" sort={f.sort} dir={f.dir} hrefFor={(c, d) => href({ sort: c, dir: d, page: 1 })} />
+                <SortHeader label="Value" col="final_value" sort={f.sort} dir={f.dir} hrefFor={(c, d) => href({ sort: c, dir: d, page: 1 })} />
                 <th>Agent</th>
                 <th>Source</th>
                 <th>Shadowfax remark</th>
@@ -116,6 +117,8 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
                   <td>
                     <Link href={`/cases/${c.id}`} className="awb">{c.awb}</Link>
                     {c.sla_breached && <span className="ml-1.5 text-2xs font-semibold text-age-5" title="TAT breached">TAT</span>}
+                    {c.complaint_open && <span className="ml-1.5 text-2xs font-semibold text-age-4" title="The client reported a problem with the POD">Complaint</span>}
+                    {c.otp_delivered && <span className="ml-1.5 text-2xs font-semibold text-age-0" title="OTP delivered">OTP</span>}
                   </td>
                   <td>{c.client_display_name ?? <span className="muted">—</span>}</td>
                   <td className="whitespace-nowrap">
@@ -125,6 +128,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
                   <td><Aging days={c.aging_days} final={c.status_category === 'closed' || c.status_category === 'lost'} /></td>
                   <td><StatusBadge label={c.status_label} color={c.status_color} /></td>
                   <td className="max-w-[180px] truncate" title={c.hub ?? c.location ?? ''}>{c.hub ?? c.location ?? <span className="muted">—</span>}</td>
+                  <td className="whitespace-nowrap text-right">{c.final_value != null ? fmtInr(c.final_value) : <span className="muted">—</span>}</td>
                   <td className="whitespace-nowrap">{c.agent_display_name ?? <span className="muted">Unassigned</span>}</td>
                   <td><SourceTag source={c.source_type} /></td>
                   <td className="max-w-[240px] truncate text-ink-soft" title={c.team_remark ?? ''}>{c.team_remark ?? ''}</td>

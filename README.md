@@ -11,6 +11,10 @@ Cases come from client Google Sheet trackers, from client emails, and from peopl
 | Internal team | Work cases, request Lost, approve Lost if given the right |
 | Client POC | Own client only: see status, add pending shipments, request Lost |
 
+**Request POD.** When a client (or the team) submits AWBs — typed or by Excel — every AWB is looked up in the POD sheets (POD, POD CPC). PODs found are shared at once: the case becomes "POD shared", the result is shown as one list (with an Excel) and the client gets one email. AWBs without a POD become pending cases. If a shared POD is wrong, the client uses "Report a problem with this POD"; the case reopens and appears under POD complaints for the team.
+
+**Product value and OTP delivered** are stored once per AWB (Product value & OTP page: download the AWBs, fill the two columns, upload). They show on every case, list and export with that AWB.
+
 **Emails are off by default.** A Super Admin turns them on in Settings ("Send emails automatically", and each scheduled report).
 
 ---
@@ -38,7 +42,7 @@ Cases come from client Google Sheet trackers, from client emails, and from peopl
    npm run setup -- --skip-sync
    ```
    It updates the database, deploys to Vercel and prints anything left to do. Running it again is always safe.
-3. Full import of every tracker (no time limit): `npm run sync:sheets`
+3. Full import of every tracker and the POD sheets (no time limit): `npm run sync:sheets` (only the POD sheets: `npm run sync:sheets -- --pods`)
 
 ## Google bridge
 
@@ -47,11 +51,11 @@ The app reads trackers, Gmail and Drive through a small Apps Script that runs as
 1. Open a Google Sheet you own → **Extensions → Apps Script**. Paste `apps-script/Bridge.gs` and click **Save**.
 2. **Project Settings → Script properties**: add `BRIDGE_SECRET` with the value of `GOOGLE_BRIDGE_SECRET` from `setup.env` (setup creates it).
 3. **Deploy → New deployment → Web app**, Execute as: **Me**, Who has access: **Anyone**. Authorize, then copy the `/exec` URL into `setup.env` as `GOOGLE_BRIDGE_URL` and run setup again.
-4. After changing `Bridge.gs`: **Deploy → Manage deployments → ✏️ → New version → Deploy**.
+4. After changing `Bridge.gs`: **Deploy → Manage deployments → ✏️ → New version → Deploy**. (Version 3 reads only the new rows of the large POD sheets; older versions still work, just slower.)
 
 A tab name with `?` or `*` reads every matching tab, e.g. `??-??-????` for a workbook with one tab per day (Meesho).
 
-Trackers must be shared with the account that runs the bridge. Emails are sent from that mailbox. Uploaded Excel files are kept in its Drive under "Lost POD uploads".
+Trackers and the POD sheets must be shared with the account that runs the bridge. The POD sheets are only read, never changed; the list of POD workbooks is on the Google Sheet imports page. Emails are sent from that mailbox. Uploaded Excel files are kept in its Drive under "Lost POD uploads".
 
 ## Schedules (Vercel)
 

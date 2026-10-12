@@ -14,8 +14,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Sear
   const admin = isAdminRole(user.role);
   const sp = await searchParams;
   const supabase = await createClient();
+  const showRemoved = (Array.isArray(sp.removed) ? sp.removed[0] : sp.removed) === '1';
+  const clientsQ = supabase.from('clients').select('*').order('name');
   const [clientsRes, statsRes, pocsRes] = await Promise.all([
-    supabase.from('clients').select('*').order('name'),
+    showRemoved ? clientsQ.not('removed_at', 'is', null) : clientsQ.is('removed_at', null),
     supabase.rpc('case_stats', {}),
     supabase.from('client_pocs').select('client_id, is_active, user_id'),
   ]);
@@ -23,7 +25,11 @@ export default async function ClientsPage({ searchParams }: { searchParams: Sear
   const pocs = pocsRes.data ?? [];
   return (
     <>
-      <PageHeader title="Clients" sub="Names and aliases used in trackers and emails, sender domains for identifying email escalations, and each client’s TAT." />
+      <PageHeader
+        title={showRemoved ? 'Removed clients' : 'Clients'}
+        sub="Names and aliases used in trackers and emails, sender domains for identifying email escalations, and each client’s TAT."
+        actions={admin ? <a href={showRemoved ? '/clients' : '/clients?removed=1'} className="btn btn-ghost">{showRemoved ? 'Back to clients' : 'Show removed clients'}</a> : undefined}
+      />
       <Flash sp={sp} />
       <section className="panel tbl-wrap mb-5">
         <table className="tbl">

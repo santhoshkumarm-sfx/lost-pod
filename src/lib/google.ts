@@ -84,6 +84,38 @@ export async function readTab(workbookId: string, sheetName: string, maxRows?: n
   return rows.map((r) => r.map((c) => (c == null ? '' : String(c))));
 }
 
+const fullTabCache = new Map<string, { at: number; rows: string[][] }>();
+
+/**
+ * Part of a tab (1-based rows and columns). Needs Bridge.gs version 3; with an older bridge the whole tab is
+ * read and cut here, so it still works, only slower.
+ */
+export async function readRows(
+  workbookId: string, sheetName: string, opts: { startRow: number; maxRows: number; columns?: number[]; linkColumns?: number[] },
+): Promise<{ lastRow: number; rows: string[][] }> {
+  const str = (rows: unknown[][]) => rows.map((r) => r.map((c) => (c == null ? '' : String(c))));
+  try {
+    const r = await callBridge<{ lastRow: number; rows: unknown[][] }>('readRows', { workbookId, sheetName, ...opts });
+    return { lastRow: r.lastRow, rows: str(r.rows) };
+  } catch (e) {
+    if (!/Unknown action/i.test((e as Error).message)) throw e;
+    if (opts.startRow === 1) {
+      // Header look-ups: the old bridge can read the top rows only.
+      const top = await readTab(workbookId, sheetName, opts.maxRows);
+      return { lastRow: Number.MAX_SAFE_INTEGER, rows: opts.columns ? top.map((r) => opts.columns!.map((c) => r[c - 1] ?? '')) : top };
+    }
+    const key = `${workbookId}\u0001${sheetName}`;
+    let hit = fullTabCache.get(key);
+    if (!hit || Date.now() - hit.at > 120_000) {
+      hit = { at: Date.now(), rows: await readTab(workbookId, sheetName) };
+      fullTabCache.set(key, hit);
+    }
+    const all = hit.rows;
+    const part = all.slice(opts.startRow - 1, opts.startRow - 1 + opts.maxRows);
+    return { lastRow: all.length, rows: opts.columns ? part.map((r) => opts.columns!.map((c) => r[c - 1] ?? '')) : part };
+  }
+}
+
 // ---------- Gmail ----------
 
 export interface ThreadHit {

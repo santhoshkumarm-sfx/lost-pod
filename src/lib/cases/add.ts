@@ -5,11 +5,12 @@ import { createAdminClient } from '../supabase/admin';
 import { createClient } from '../supabase/server';
 import { todayIn } from '../time';
 import type { UploadProblem, UploadRow } from './upload';
+import { checkPodRequest } from '../pod/request';
 
-export interface AddResult { created: number; skipped: number; uploadId: string | null; driveUrl: string | null }
+export interface AddResult { created: number; skipped: number; uploadId: string | null; driveUrl: string | null; pod: { total: number; found: number; requestNo: number } | null; podError: string | null }
 
 /** Keeps the uploaded file in the bridge owner's Drive: "Lost POD uploads/<client or Shadowfax team>/". */
-async function saveToDrive(file: File, folder: string, who: string): Promise<{ url: string | null; error: string | null }> {
+export async function saveToDrive(file: File, folder: string, who: string): Promise<{ url: string | null; error: string | null }> {
   if (!bridgeConfigured()) return { url: null, error: 'Google bridge not connected' };
   try {
     const stamp = new Date(Date.now() + 19800000).toISOString().slice(0, 16).replace('T', ' ').replace(':', '');
@@ -54,7 +55,26 @@ export async function addPendingCases(input: {
     method: input.method, filename: input.file?.name ?? null, total_rows: input.total ?? input.rows.length, created,
     skipped: problems.length, problems: problems.slice(0, 2000), drive_url: drive.url, drive_error: drive.error,
   }).select('id').single();
-  return { created, skipped: problems.length, uploadId: (log as { id: string } | null)?.id ?? null, driveUrl: drive.url };
+  const uploadId = (log as { id: string } | null)?.id ?? null;
+  // Every submission is also a POD request: look the AWBs up in the POD sheets (new and already-open ones).
+  let pod: AddResult['pod'] = null;
+  let podError: string | null = null;
+  try {
+    if (uploadId) pod = await checkPodRequest(uploadId, input.rows.map((r) => String(r.awb ?? '')), input.user);
+  } catch (e) {
+    podError = (e as Error).message;
+  }
+  return { created, skipped: problems.length, uploadId, driveUrl: drive.url, pod, podError };
 }
 
 export const today = () => todayIn();
+
+/** Flash message after a submission (new shipments + POD check). */
+export function submitMessage(r: AddResult): ['ok' | 'error', string] {
+  const parts = [`${r.created} shipment(s) added`];
+  if (r.skipped) parts.push(`${r.skipped} not added — see why below`);
+  let text = parts.join(', ') + '.';
+  if (r.pod) text = `PR-${r.pod.requestNo}: ${text} ${r.pod.found} of ${r.pod.total} POD(s) found and shared${r.pod.found < r.pod.total ? '; Shadowfax is working on the rest' : ''}.`;
+  if (r.podError) text += ` POD check failed: ${r.podError}`;
+  return [r.created || r.pod?.found ? 'ok' : 'error', text];
+}

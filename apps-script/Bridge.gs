@@ -30,7 +30,7 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, bridge: 'lost-pod', version: 2 }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, bridge: 'lost-pod', version: 3 }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -42,7 +42,7 @@ function folder_(parent, name) {
 function handle_(action, p) {
   switch (action) {
     case 'ping':
-      return { email: Session.getEffectiveUser().getEmail(), version: 2 };
+      return { email: Session.getEffectiveUser().getEmail(), version: 3 };
 
     case 'saveFile': {
       // Uploaded case sheets are kept in "<folder>/<sub folder>" in the bridge owner's Drive.
@@ -71,6 +71,35 @@ function handle_(action, p) {
       if (p.maxRows) rows = Math.min(rows, p.maxRows);
       // Values exactly as displayed ("17 Jul", "#REF!") — the dashboard normalises them.
       return sh.getRange(1, 1, rows, cols).getDisplayValues();
+    }
+
+    case 'readRows': {
+      // Part of a tab: rows startRow..startRow+maxRows-1 (1-based), only the asked columns (1-based).
+      // For linkColumns the real URL is returned when the cell shows a hyperlink ("View", =HYPERLINK(...)).
+      var sh2 = SpreadsheetApp.openById(p.workbookId).getSheetByName(p.sheetName);
+      if (!sh2) throw new Error('Tab "' + p.sheetName + '" not found');
+      var last = sh2.getLastRow(), lastCol = sh2.getLastColumn();
+      var start = Math.max(1, p.startRow || 1);
+      if (!last || !lastCol || start > last) return { lastRow: last, rows: [] };
+      var n = Math.min(p.maxRows || 5000, last - start + 1);
+      var cols = (p.columns && p.columns.length) ? p.columns : null;
+      var linkCols = p.linkColumns || [];
+      var pick = cols || Array.apply(null, Array(lastCol)).map(function (_, i) { return i + 1; });
+      var data = pick.map(function (c) {
+        var rng = sh2.getRange(start, c, n, 1);
+        var shown = rng.getDisplayValues();
+        if (linkCols.indexOf(c) < 0) return shown;
+        var rich = rng.getRichTextValues(), formulas = rng.getFormulas();
+        return shown.map(function (v, i) {
+          if (/^https?:\/\//i.test(v[0])) return v;
+          var url = rich[i][0] && rich[i][0].getLinkUrl();
+          if (!url) { var m = /HYPERLINK\(\s*"([^"]+)"/i.exec(formulas[i][0] || ''); url = m && m[1]; }
+          return [url || v[0]];
+        });
+      });
+      var out = [];
+      for (var r = 0; r < n; r++) out.push(data.map(function (col) { return col[r][0]; }));
+      return { lastRow: last, rows: out };
     }
 
     case 'searchThreads': {

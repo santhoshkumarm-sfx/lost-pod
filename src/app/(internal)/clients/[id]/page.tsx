@@ -5,7 +5,7 @@ import { AgingRibbon, Field, Flash, Kpi, Panel } from '@/components/ui';
 import { isAdminRole, requireInternal } from '@/lib/auth';
 import type { SearchParams } from '@/lib/flash';
 import { createClient } from '@/lib/supabase/server';
-import { createPocLogin, saveClient, savePoc, setPocActive } from '../actions';
+import { createPocLogin, removeClient, restoreClient, saveClient, savePoc, setPocActive } from '../actions';
 
 export const metadata = { title: 'Client' };
 
@@ -30,7 +30,17 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
       <div className="mb-1 text-xs text-ink-faint"><Link href="/clients">Clients</Link> / {c.name}</div>
       <div className="mb-5 flex items-end justify-between">
         <h1>{c.name}</h1>
-        <Link href={`/cases?client=${id}`} className="btn">View cases</Link>
+        <div className="flex gap-2">
+          <Link href={`/cases?client=${id}`} className="btn">View cases</Link>
+          {admin && (
+            <form action={c.removed_at ? restoreClient : removeClient}>
+              <input type="hidden" name="id" value={c.id} />
+              <SubmitButton className="btn btn-ghost" confirm={c.removed_at ? undefined : `Remove ${c.name}? It disappears from lists and its POC logins are switched off. Its cases and history stay.`}>
+                {c.removed_at ? 'Restore client' : 'Remove client'}
+              </SubmitButton>
+            </form>
+          )}
+        </div>
       </div>
       <Flash sp={sp} />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">

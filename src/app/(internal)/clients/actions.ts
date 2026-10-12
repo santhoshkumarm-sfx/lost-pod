@@ -93,3 +93,25 @@ export async function setPocActive(fd: FormData) {
     return active ? `${poc.name} re-activated.` : `${poc.name} deactivated. Their portal access is removed.`;
   });
 }
+
+/** Remove a client: hidden from lists and pickers, POC logins of this client switched off. Cases stay. */
+export async function removeClient(fd: FormData) {
+  await requireAdmin();
+  const id = str(fd, 'id');
+  await done('/clients', async () => {
+    const sb = await createClient();
+    const c = must(await sb.from('clients').update({ is_active: false, removed_at: new Date().toISOString() }).eq('id', id).select('name').single()) as { name: string };
+    await sb.from('client_pocs').update({ is_active: false }).eq('client_id', id);
+    return `${c.name} removed. Restore it from "Show removed clients" if needed.`;
+  });
+}
+
+export async function restoreClient(fd: FormData) {
+  await requireAdmin();
+  const id = str(fd, 'id');
+  await done(`/clients/${id}`, async () => {
+    const sb = await createClient();
+    const c = must(await sb.from('clients').update({ is_active: true, removed_at: null }).eq('id', id).select('name').single()) as { name: string };
+    return `${c.name} restored. Switch its POCs back on under POCs if they should sign in again.`;
+  });
+}

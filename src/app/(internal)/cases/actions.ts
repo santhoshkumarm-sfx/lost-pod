@@ -41,7 +41,6 @@ export async function updateCase(fd: FormData) {
       complaint_type: strOrNull(fd, 'complaint_type'),
       reason: strOrNull(fd, 'reason'),
       product_name: strOrNull(fd, 'product_name'),
-      product_value: numOrNull(fd, 'product_value'),
       last_change_source: 'app',
     };
     const status = str(fd, 'team_status');
@@ -239,3 +238,47 @@ export async function assignToMe(fd: FormData) {
   });
 }
 
+
+/** Team: close a POD complaint, optionally with a corrected POD link (the case becomes "POD shared"). */
+export async function resolveComplaint(fd: FormData) {
+  await requireInternal();
+  const id = str(fd, 'id');
+  await run(`/cases/${id}`, async () => {
+    const sb = await createClient();
+    const { error } = await sb.rpc('resolve_pod_complaint', { p_case_id: id, p_resolution: strOrNull(fd, 'resolution'), p_link: strOrNull(fd, 'pod_link') });
+    if (error) throw error;
+    return strOrNull(fd, 'pod_link') ? 'Complaint solved and the new POD shared.' : 'Complaint marked solved.';
+  });
+}
+
+/** Team: share a POD found in the POD sheets on this case. */
+export async function shareSheetPod(fd: FormData) {
+  const user = await requireInternal();
+  const id = str(fd, 'id');
+  await run(`/cases/${id}`, async () => {
+    const link = str(fd, 'pod_link');
+    if (!/^https?:\/\//i.test(link)) throw new Error('No POD link.');
+    const sb = await createClient();
+    must(await sb.from('cases').update({
+      pod_link: link, pod_status: 'shared', team_status: 'pod_shared', status_source: 'app', last_change_source: 'app', last_changed_by: user.id,
+    }).eq('id', id).select('id'));
+    return 'POD shared from the POD sheet.';
+  });
+}
+
+/** Admin: product value / OTP delivered for this AWB (applies wherever the AWB appears). */
+export async function saveAwbValue(fd: FormData) {
+  await requireAdmin();
+  const id = str(fd, 'id');
+  await run(`/cases/${id}`, async () => {
+    const sb = await createClient();
+    const otp = str(fd, 'otp_delivered');
+    const value = str(fd, 'product_value').replace(/[,₹\s]/g, '');
+    if (value && !/^\d+(\.\d+)?$/.test(value)) throw new Error('Product value must be a number.');
+    const row = { awb: str(fd, 'awb'), product_value: value || null, otp_delivered: otp === 'yes' ? true : otp === 'no' ? false : null };
+    const clear = !value && !otp;
+    const { error } = await sb.rpc('set_awb_values', { p_rows: [clear ? { awb: row.awb, clear: true } : row], p_source: 'manual' });
+    if (error) throw error;
+    return clear ? 'Product value and OTP cleared for this AWB.' : 'Saved for this AWB — shown on every case and report with it.';
+  });
+}

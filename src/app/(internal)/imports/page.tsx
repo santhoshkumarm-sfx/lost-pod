@@ -7,7 +7,7 @@ import { fmtDateTime, fmtNum } from '@/lib/format';
 import { googleStatus } from '@/lib/google';
 import { getClients } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
-import { addWorkbook, syncNow, toggleSource } from './actions';
+import { addWorkbook, savePodWorkbooks, syncNow, syncPodSheets, toggleSource } from './actions';
 
 export const metadata = { title: 'Google Sheet imports' };
 export const maxDuration = 300;
@@ -19,12 +19,16 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
   const admin = isAdminRole(user.role);
   const sp = await searchParams;
   const supabase = await createClient();
-  const [sourcesRes, runsRes, clients, statsRes] = await Promise.all([
+  const [sourcesRes, runsRes, clients, statsRes, podState, podBooks] = await Promise.all([
     supabase.from('sheet_sources').select('*, clients(name)').order('workbook_name').order('sheet_name'),
     supabase.from('sync_runs').select('*, sheet_sources(workbook_name, sheet_name)').order('started_at', { ascending: false }).limit(15),
     getClients(supabase),
     supabase.rpc('case_stats_f', { p: { category: 'all' } }),
+    supabase.from('pod_sync_state').select('*').order('workbook_name').order('sheet_name'),
+    supabase.from('app_settings').select('value').eq('key', 'pod_workbooks').maybeSingle(),
   ]);
+  const books = (Array.isArray(podBooks.data?.value) ? podBooks.data!.value : []) as { id: string; name: string }[];
+  const podTabs = (podState.data ?? []) as { workbook_id: string; workbook_name: string | null; sheet_name: string; links: number; awb_column: string | null; link_column: string | null; last_synced_at: string | null; last_message: string | null }[];
   const caseCount = new Map(((statsRes.data?.by_client ?? []) as { client_id: string | null; total: number }[]).map((c) => [c.client_id ?? 'none', c.total]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sources = (sourcesRes.data ?? []) as any[];
@@ -49,6 +53,43 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
           Google Sheets is not connected. Install the Google bridge (README → Google bridge) and run setup again.
         </div>
       )}
+      <Panel title="POD sheets (read only)" className="mb-5" bodyClass="p-0">
+        <div id="pod-sheets" className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+          <p className="text-ink-soft">
+            Every tab with an AWB column and a POD / image link column is copied into the POD index ({fmtNum(podTabs.reduce((n, t) => n + t.links, 0))} AWB links). Client POD requests are checked against it. The sheets are never changed.
+          </p>
+          <div className="flex gap-2">
+            <form action={syncPodSheets}><SubmitButton pending="Reading new rows…" disabled={!g.sheets}>Check POD sheets now</SubmitButton></form>
+            {admin && <form action={syncPodSheets}><input type="hidden" name="full" value="1" /><SubmitButton className="btn btn-ghost" pending="Reading everything…" disabled={!g.sheets} confirm="Read every POD tab again from the top? This can take several minutes.">Read all again</SubmitButton></form>}
+          </div>
+        </div>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead><tr><th>Workbook</th><th>Tab</th><th>AWB column</th><th>Link column</th><th className="text-right">AWB links</th><th>Last read</th><th>Result</th></tr></thead>
+            <tbody>
+              {podTabs.map((t) => (
+                <tr key={`${t.workbook_id}/${t.sheet_name}`} className={t.links ? '' : 'text-ink-faint'}>
+                  <td><a href={`https://docs.google.com/spreadsheets/d/${t.workbook_id}`} target="_blank" rel="noreferrer">{t.workbook_name}</a></td>
+                  <td>{t.sheet_name}</td><td>{t.awb_column ?? '—'}</td><td>{t.link_column ?? '—'}</td>
+                  <td className="text-right">{fmtNum(t.links)}</td>
+                  <td className="whitespace-nowrap">{t.last_synced_at ? fmtDateTime(t.last_synced_at) : '—'}</td>
+                  <td className={/^(Failed|Cannot)/.test(t.last_message ?? '') ? 'text-age-5' : ''}>{t.last_message}</td>
+                </tr>
+              ))}
+              {!podTabs.length && <tr><td colSpan={7} className="py-4 text-center text-ink-soft">Not read yet — click “Check POD sheets now”.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        {admin && (
+          <form action={savePodWorkbooks} className="space-y-2 border-t border-line px-4 py-3">
+            <Field label="POD workbooks" hint="One per line: link | name. The Google account of the bridge must be able to open them.">
+              <textarea name="workbooks" rows={Math.max(2, books.length + 1)} className="input font-mono text-xs"
+                defaultValue={books.map((b) => `https://docs.google.com/spreadsheets/d/${b.id} | ${b.name}`).join('\n')} />
+            </Field>
+            <SubmitButton className="btn btn-sm">Save POD workbooks</SubmitButton>
+          </form>
+        )}
+      </Panel>
       <Panel title="Is every client coming in?" className="mb-5" bodyClass="tbl-wrap">
         <table className="tbl">
           <thead>

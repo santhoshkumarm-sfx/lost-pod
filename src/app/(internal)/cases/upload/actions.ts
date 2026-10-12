@@ -1,7 +1,7 @@
 'use server';
 import { redirect } from 'next/navigation';
 import { isAdminRole, requireInternal } from '@/lib/auth';
-import { addPendingCases } from '@/lib/cases/add';
+import { addPendingCases, submitMessage } from '@/lib/cases/add';
 import { parseUpload } from '@/lib/cases/upload';
 import { errorText, str, strOrNull, withFlash } from '@/lib/flash';
 import { createClient } from '@/lib/supabase/server';
@@ -24,7 +24,8 @@ export async function uploadCases(fd: FormData) {
       user, clientId, rows: parsed.rows, parseProblems: parsed.problems, total: parsed.total, method: 'excel', file,
       force: isAdminRole(user.role) && str(fd, 'force') === '1', agentId: strOrNull(fd, 'assigned_agent'),
     });
-    dest = withFlash(`/cases/upload?upload=${r.uploadId ?? ''}`, r.created ? 'ok' : 'error', `${r.created} pending case(s) created${r.skipped ? `, ${r.skipped} row(s) not added — see the list` : ''}.`);
+    const [kind, msg] = submitMessage(r);
+    dest = withFlash(`/cases/upload?upload=${r.uploadId ?? ''}`, kind, msg);
   } catch (e) {
     dest = withFlash('/cases/upload', 'error', errorText(e));
   }

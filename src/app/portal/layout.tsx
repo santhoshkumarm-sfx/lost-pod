@@ -16,7 +16,7 @@ export default async function PortalLayout({ children }: { children: React.React
           </Link>
           <nav className="flex gap-1 text-sm">
             <Link href="/portal" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Cases</Link>
-            <Link href="/portal/new" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Add pending</Link>
+            <Link href="/portal/new" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Request POD</Link>
             <Link href="/portal/requests" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Lost requests</Link>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { SubmitButton } from '@/components/buttons';
-import { UPLOAD_COLUMNS_SQL, UploadHistory, UploadResult, type UploadLog } from '@/components/uploads';
+import { UPLOAD_COLUMNS_SQL, UploadHistory, UploadResult, type PodItemRow, type UploadLog } from '@/components/uploads';
 import { Field, Flash, PageHeader, Panel } from '@/components/ui';
 import { isAdminRole, requireInternal } from '@/lib/auth';
 import { UPLOAD_COLUMNS } from '@/lib/cases/upload';
@@ -17,22 +17,23 @@ export default async function UploadCasesPage({ searchParams }: { searchParams: 
   const sp = await searchParams;
   const supabase = await createClient();
   const uploadId = param(sp, 'upload');
-  const [clients, agents, recent, current] = await Promise.all([
+  const [clients, agents, recent, current, podItems] = await Promise.all([
     getClients(supabase, true),
     getAgents(supabase),
     supabase.from('case_uploads').select(UPLOAD_COLUMNS_SQL).order('created_at', { ascending: false }).limit(20),
     /^[0-9a-f-]{36}$/.test(uploadId) ? supabase.from('case_uploads').select(UPLOAD_COLUMNS_SQL).eq('id', uploadId).maybeSingle() : Promise.resolve({ data: null }),
+    /^[0-9a-f-]{36}$/.test(uploadId) ? supabase.from('pod_request_items').select('awb, result, pod_link, other_links, case_id').eq('upload_id', uploadId) : Promise.resolve({ data: [] }),
   ]);
   const g = googleStatus();
   return (
     <>
       <PageHeader
-        title="Upload pending cases"
-        sub="Add many escalations at once from the fixed-format Excel. Each row becomes a pending case; AWBs that are already open are skipped and listed."
+        title="POD requests and uploads"
+        sub="Every submission (Excel here, or a client's request) is checked against the POD sheets: PODs found are shared at once, the rest become pending cases."
         actions={<><Link href="/cases/new" className="btn">Add by hand</Link><a href="/api/template/pending-cases" className="btn btn-primary">Download template</a></>}
       />
       <Flash sp={sp} />
-      {current.data && <UploadResult u={current.data as unknown as UploadLog} casesHref="/cases?category=pending_pod&sort=updated_at&dir=desc" />}
+      {current.data && <UploadResult u={current.data as unknown as UploadLog} casesHref="/cases?category=pending_pod&sort=updated_at&dir=desc" items={(podItems.data ?? []) as PodItemRow[]} caseHref={(id) => `/cases/${id}`} />}
       <div className="mb-5 grid gap-5 xl:grid-cols-[1fr_380px]">
         <Panel title="Upload the filled-in template">
           <form action={uploadCases} className="space-y-3">

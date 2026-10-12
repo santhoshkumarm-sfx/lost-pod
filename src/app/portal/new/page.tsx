@@ -1,5 +1,5 @@
 import { SubmitButton } from '@/components/buttons';
-import { UPLOAD_COLUMNS_SQL, UploadHistory, UploadResult, type UploadLog } from '@/components/uploads';
+import { UPLOAD_COLUMNS_SQL, UploadHistory, UploadResult, type PodItemRow, type UploadLog } from '@/components/uploads';
 import { Field, Flash, Panel } from '@/components/ui';
 import { requirePoc } from '@/lib/auth';
 import { UPLOAD_COLUMNS } from '@/lib/cases/upload';
@@ -8,17 +8,18 @@ import { createClient } from '@/lib/supabase/server';
 import { todayIn } from '@/lib/time';
 import { pocAddCases, pocUploadCases } from '../actions';
 
-export const metadata = { title: 'Add pending shipments' };
+export const metadata = { title: 'Request POD' };
 
 export default async function PortalNew({ searchParams }: { searchParams: SearchParams }) {
   await requirePoc();
   const sp = await searchParams;
   const supabase = await createClient();
   const uploadId = param(sp, 'upload');
-  const [clientsRes, recent, current] = await Promise.all([
+  const [clientsRes, recent, current, podItems] = await Promise.all([
     supabase.from('clients').select('id, name').order('name'),
     supabase.from('case_uploads').select(UPLOAD_COLUMNS_SQL).order('created_at', { ascending: false }).limit(15),
     /^[0-9a-f-]{36}$/.test(uploadId) ? supabase.from('case_uploads').select(UPLOAD_COLUMNS_SQL).eq('id', uploadId).maybeSingle() : Promise.resolve({ data: null }),
+    /^[0-9a-f-]{36}$/.test(uploadId) ? supabase.from('pod_request_items').select('awb, result, pod_link, other_links, case_id').eq('upload_id', uploadId) : Promise.resolve({ data: [] }),
   ]);
   const clients = (clientsRes.data ?? []) as { id: string; name: string }[];
   const pick = clients.length > 1 && (
@@ -29,11 +30,11 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
   return (
     <>
       <div className="mb-5">
-        <h1>Add shipments that need a POD</h1>
-        <p className="mt-1 text-ink-soft">Type the AWBs, or upload many at once with the Excel template. Shipments already being worked on are not added twice.</p>
+        <h1>Request POD</h1>
+        <p className="mt-1 text-ink-soft">Type the AWBs, or upload many at once with the Excel template. As soon as you submit, every AWB is checked against the Shadowfax POD records: the PODs found are shared here and in one email; the rest become pending shipments that our team works on.</p>
       </div>
       <Flash sp={sp} />
-      {current.data && <UploadResult u={current.data as unknown as UploadLog} casesHref="/portal?category=pending_pod&sort=updated_at&dir=desc" />}
+      {current.data && <UploadResult u={current.data as unknown as UploadLog} casesHref="/portal?category=pending_pod&sort=updated_at&dir=desc" items={(podItems.data ?? []) as PodItemRow[]} caseHref={(id) => `/portal/cases/${id}`} />}
       <div className="mb-5 grid gap-5 lg:grid-cols-2">
         <Panel title="Add by hand">
           <form action={pocAddCases} className="space-y-3">
@@ -47,7 +48,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
             </div>
             <Field label="Reason (optional)"><input name="reason" className="input" placeholder="e.g. Customer says not received" /></Field>
             <Field label="Remark (optional)"><input name="remark" className="input" /></Field>
-            <SubmitButton pending="Adding…">Add shipments</SubmitButton>
+            <SubmitButton pending="Checking PODs…">Request POD</SubmitButton>
           </form>
         </Panel>
         <Panel title="Upload Excel">
@@ -58,7 +59,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
             </p>
             {pick}
             <Field label="Filled-in template (.xlsx)"><input type="file" name="file" accept=".xlsx" required className="input" /></Field>
-            <SubmitButton pending="Reading and adding…">Upload and add</SubmitButton>
+            <SubmitButton pending="Reading and checking PODs…">Upload and request POD</SubmitButton>
           </form>
         </Panel>
       </div>

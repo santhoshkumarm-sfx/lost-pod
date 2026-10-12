@@ -10,7 +10,12 @@ export interface NavItem {
 
 export function Sidebar({ groups, footer }: { groups: { title?: string; items: NavItem[] }[]; footer: React.ReactNode }) {
   const path = usePathname();
-  const active = (href: string) => path === href || path.startsWith(`${href}/`);
+  const base = (href: string) => href.split('?')[0];
+  const matches = (href: string) => path === base(href) || path.startsWith(`${base(href)}/`);
+  // The most specific item wins ("/cases/upload" over "/cases"); items with a query never light up on their own.
+  const best = groups.flatMap((g) => g.items).filter((it) => !it.href.includes('?') && matches(it.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+  const active = (href: string) => href === best;
   return (
     <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col bg-night text-night-text">
       <div className="px-4 pb-4 pt-5">

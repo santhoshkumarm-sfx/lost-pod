@@ -106,6 +106,28 @@ create policy audit_logs_read on public.audit_logs for select to authenticated u
 drop policy if exists report_runs_read on public.report_runs;
 create policy report_runs_read on public.report_runs for select to authenticated using ((select public.is_admin()));
 
+-- Tables the case view reads (policies and functions further down).
+create table if not exists public.awb_values (
+  awb           text primary key,
+  product_value numeric(14, 2) check (product_value is null or product_value >= 0),
+  otp_delivered boolean,
+  source        text not null default 'manual' check (source in ('manual', 'upload')),
+  updated_by    uuid references public.profiles (id) on delete set null,
+  updated_at    timestamptz not null default now()
+);
+create table if not exists public.pod_complaints (
+  id          uuid primary key default gen_random_uuid(),
+  case_id     uuid not null references public.cases (id) on delete cascade,
+  raised_by   uuid references public.profiles (id) on delete set null,
+  raised_at   timestamptz not null default now(),
+  note        text not null,
+  old_link    text,
+  status      text not null default 'open' check (status in ('open', 'resolved')),
+  resolved_by uuid references public.profiles (id) on delete set null,
+  resolved_at timestamptz,
+  resolution  text
+);
+
 -- ---------- Case view: "today" and the default SLA are read once, aging buckets joined once ----------
 create or replace view public.v_cases with (security_invoker = true) as
 with cfg as materialized (
@@ -128,11 +150,17 @@ select
   a.aging_days,
   b.label                                        as aging_bucket,
   b.sort_order                                   as aging_bucket_order,
-  (sm.category in ('open', 'lost_pending') and a.current_aging_days > coalesce(cl.sla_days, cfg.default_sla)) as sla_breached
+  (sm.category in ('open', 'lost_pending') and a.current_aging_days > coalesce(cl.sla_days, cfg.default_sla)) as sla_breached,
+  -- Product value / OTP set by an Admin per AWB win over the tracker's value.
+  coalesce(av.product_value, c.product_value)    as final_value,
+  av.otp_delivered,
+  case when av.product_value is not null then av.source when c.product_value is not null then 'tracker' end as value_source,
+  exists (select 1 from public.pod_complaints pc where pc.case_id = c.id and pc.status = 'open') as complaint_open
 from public.cases c
 cross join cfg
 join public.status_master sm on sm.code = c.team_status
 left join public.clients cl on cl.id = c.client_id
+left join public.awb_values av on av.awb = c.awb
 left join public.profiles ag on ag.id = c.assigned_agent
 left join public.client_pocs poc on poc.id = c.client_poc_id
 cross join lateral (
@@ -817,11 +845,17 @@ returns setof public.v_cases language sql stable security invoker set search_pat
     and (nullif(p ->> 'status', '') is null or v.team_status = p ->> 'status')
     and (nullif(p ->> 'category', '') is null or p ->> 'category' = 'all'
          or (p ->> 'category' = 'active' and v.status_category in ('open', 'lost_pending'))
+         or (p ->> 'category' = 'complaints' and v.complaint_open)
          or (p ->> 'category' in ('pending_pod', 'critical') and v.status_category = 'open'
              and v.team_status <> 'pod_shared' and v.pod_status <> 'shared'
              and (p ->> 'category' = 'pending_pod' or v.aging_days > public.critical_days()))
          or v.status_category::text = p ->> 'category')
     and (nullif(p ->> 'aging', '') is null or v.aging_bucket = p ->> 'aging')
+    and (coalesce(p ->> 'value', '') <> 'missing' or v.final_value is null)
+    and (coalesce(p ->> 'value', '') <> 'set' or v.final_value is not null)
+    and (nullif(p ->> 'otp', '') is null
+         or (p ->> 'otp' = 'yes' and v.otp_delivered) or (p ->> 'otp' = 'no' and v.otp_delivered = false)
+         or (p ->> 'otp' = 'unknown' and v.otp_delivered is null))
     and (nullif(p ->> 'agemin', '') is null or v.aging_days >= (p ->> 'agemin')::int)
     and (nullif(p ->> 'agemax', '') is null or v.aging_days <= (p ->> 'agemax')::int)
     and (coalesce(p ->> 'sla', '') <> '1' or v.sla_breached)
@@ -1009,7 +1043,8 @@ returns jsonb language sql stable security invoker set search_path = public as $
   select jsonb_build_object(
     'unread', (select count(*) from public.notifications where user_id = auth.uid() and read_at is null),
     'emails', (select count(*) from public.emails where status = 'needs_review'),
-    'lost_requests', (select count(distinct coalesce(request_id, id)) from public.lost_approvals where status = 'pending'))
+    'lost_requests', (select count(distinct coalesce(request_id, id)) from public.lost_approvals where status = 'pending'),
+    'complaints', (select count(*) from public.pod_complaints where status = 'open'))
 $$;
 grant execute on function public.sidebar_counts() to authenticated;
 
@@ -1350,3 +1385,304 @@ $$;
 
 revoke execute on function public.import_sheet_rows(uuid, jsonb, uuid) from public, anon, authenticated;
 grant execute on function public.import_sheet_rows(uuid, jsonb, uuid) to service_role;
+
+-- =====================================================================
+-- ######## Oct 2026: users, product value & OTP, POD sheets, POD requests, complaints ########
+-- =====================================================================
+
+-- ---------- Users and clients can be removed: hidden, cannot sign in, history kept ----------
+alter table public.profiles add column if not exists removed_at timestamptz;
+alter table public.clients add column if not exists removed_at timestamptz;
+
+-- Santhosh is the default Super Admin. Applied once (when his login exists); a Super Admin can change it later.
+do $$
+declare n int;
+begin
+  if not exists (select 1 from public.app_settings where key = 'default_super_admin_set') then
+    update public.profiles set role = 'super_admin', is_active = true, removed_at = null
+     where lower(email) = 'santhoshkumar.m@shadowfax.in';
+    get diagnostics n = row_count;
+    if n > 0 then
+      update auth.users set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"super_admin"}'::jsonb
+       where lower(email) = 'santhoshkumar.m@shadowfax.in';
+      insert into public.app_settings (key, value, description)
+      values ('default_super_admin_set', 'true', 'Marker: santhoshkumar.m@shadowfax.in was made Super Admin once');
+    end if;
+  end if;
+end $$;
+
+-- In-app notification for everyone in the Shadowfax team (admins and internal team).
+create or replace function public.notify_internal(p_type text, p_title text, p_body text, p_case uuid, p_link text)
+returns void language sql security definer set search_path = public as $$
+  insert into public.notifications (user_id, type, title, body, case_id, link)
+  select id, p_type, p_title, p_body, p_case, p_link
+  from public.profiles where is_active and removed_at is null and role in ('super_admin', 'admin', 'internal_team')
+$$;
+revoke execute on function public.notify_internal(text, text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.notify_internal(text, text, text, uuid, text) to service_role;
+
+-- ---------- Product value and OTP delivered: one value per AWB, shown wherever the AWB appears ----------
+alter table public.awb_values enable row level security;
+drop policy if exists awb_values_read on public.awb_values;
+create policy awb_values_read on public.awb_values for select to authenticated
+  using ((select public.is_internal())
+         or awb in (select c.awb from public.cases c where c.client_id in (select public.poc_client_ids())));
+drop trigger if exists audit_awb_values on public.awb_values;
+create trigger audit_awb_values after insert or update or delete on public.awb_values
+  for each row execute function public.audit_row();
+
+create table if not exists public.value_uploads (
+  id          uuid primary key default gen_random_uuid(),
+  uploaded_by uuid references public.profiles (id) on delete set null,
+  uploader_name text,
+  filename    text,
+  total_rows  int not null default 0,
+  updated     int not null default 0,
+  not_in_cases int not null default 0,
+  problems    jsonb not null default '[]'::jsonb,
+  drive_url   text,
+  created_at  timestamptz not null default now()
+);
+alter table public.value_uploads enable row level security;
+drop policy if exists value_uploads_read on public.value_uploads;
+create policy value_uploads_read on public.value_uploads for select to authenticated using ((select public.is_admin()));
+
+/**
+ * Admin / Super Admin: set product value and/or OTP delivered per AWB.
+ * Rows: [{awb, product_value?, otp_delivered?}] — a key that is missing or null leaves that field as it is;
+ * {"clear": true} removes both. Returns {updated, not_in_cases: [awb…]}.
+ */
+create or replace function public.set_awb_values(p_rows jsonb, p_source text default 'manual')
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  r jsonb;
+  v_awb text;
+  v_val numeric;
+  v_otp boolean;
+  n int := 0;
+  v_missing text[] := '{}';
+begin
+  if not public.is_admin() then raise exception 'Only an Admin or Super Admin can change product value or OTP'; end if;
+  if jsonb_array_length(coalesce(p_rows, '[]'::jsonb)) > 20000 then raise exception 'At most 20,000 rows at a time'; end if;
+  for r in select * from jsonb_array_elements(p_rows) loop
+    v_awb := upper(regexp_replace(coalesce(r ->> 'awb', ''), '\s', '', 'g'));
+    continue when v_awb = '';
+    if coalesce((r ->> 'clear')::boolean, false) then
+      delete from public.awb_values where awb = v_awb;
+      n := n + 1;
+      continue;
+    end if;
+    v_val := case when coalesce(r ->> 'product_value', '') ~ '^\d+(\.\d+)?$' then (r ->> 'product_value')::numeric end;
+    v_otp := case when r ? 'otp_delivered' and r ->> 'otp_delivered' is not null then (r ->> 'otp_delivered')::boolean end;
+    continue when v_val is null and v_otp is null;
+    insert into public.awb_values as a (awb, product_value, otp_delivered, source, updated_by, updated_at)
+    values (v_awb, v_val, v_otp, case when p_source = 'upload' then 'upload' else 'manual' end, auth.uid(), now())
+    on conflict (awb) do update set
+      product_value = coalesce(excluded.product_value, a.product_value),
+      otp_delivered = coalesce(excluded.otp_delivered, a.otp_delivered),
+      source = excluded.source, updated_by = excluded.updated_by, updated_at = now();
+    n := n + 1;
+    if not exists (select 1 from public.cases where awb = v_awb and not is_deleted) then v_missing := v_missing || v_awb; end if;
+  end loop;
+  return jsonb_build_object('updated', n, 'not_in_cases', to_jsonb(v_missing));
+end $$;
+revoke execute on function public.set_awb_values(jsonb, text) from public, anon;
+grant execute on function public.set_awb_values(jsonb, text) to authenticated;
+
+-- ---------- POD sheets (POD, POD CPC): read-only copy of AWB → POD link, refreshed by the sync ----------
+insert into public.app_settings (key, value, description) values
+  ('pod_workbooks', '[{"id":"18M9GnqUVGPS54nzNDtO_MgWz3O2ro5lWoj79AQ71_CU","name":"POD"},{"id":"1QgKTYZUqkda-3OsL2oK82ZNtpuoWRs5TalikHFfpko0","name":"POD CPC"}]',
+   'Google Sheets with POD links. Every tab with an AWB column and a POD / image link column is read (never changed).'),
+  ('pod_request_email', 'true', 'Email the client one consolidated list of the PODs found when they submit a POD request')
+on conflict (key) do nothing;
+
+create table if not exists public.pod_index (
+  awb          text not null,
+  pod_link     text not null,
+  workbook_id  text not null,
+  sheet_name   text not null,
+  scan_date    date,
+  hub          text,
+  first_seen_at timestamptz not null default now(),
+  primary key (awb, pod_link)
+);
+alter table public.pod_index enable row level security;
+drop policy if exists pod_index_read on public.pod_index;
+create policy pod_index_read on public.pod_index for select to authenticated using ((select public.is_internal()));
+
+create table if not exists public.pod_sync_state (
+  workbook_id    text not null,
+  sheet_name     text not null,
+  workbook_name  text,
+  rows_done      int not null default 0,
+  awb_column     text,
+  link_column    text,
+  links          int not null default 0,
+  last_synced_at timestamptz,
+  last_message   text,
+  primary key (workbook_id, sheet_name)
+);
+alter table public.pod_sync_state enable row level security;
+drop policy if exists pod_sync_state_read on public.pod_sync_state;
+create policy pod_sync_state_read on public.pod_sync_state for select to authenticated using ((select public.is_internal()));
+
+-- ---------- POD requests: a client submission (case_uploads) checked against the POD sheets ----------
+alter table public.case_uploads add column if not exists pod_checked_at  timestamptz;
+alter table public.case_uploads add column if not exists pod_requested   int not null default 0;
+alter table public.case_uploads add column if not exists pod_found       int not null default 0;
+alter table public.case_uploads add column if not exists pod_email_to    text;
+alter table public.case_uploads add column if not exists pod_email_error text;
+alter table public.case_uploads add column if not exists request_no      bigint;
+create sequence if not exists public.pod_request_seq;
+
+create table if not exists public.pod_request_items (
+  upload_id uuid not null references public.case_uploads (id) on delete cascade,
+  awb       text not null,
+  case_id   uuid references public.cases (id) on delete set null,
+  pod_link  text,
+  other_links int not null default 0,
+  result    text not null check (result in ('shared', 'already_shared', 'not_found', 'not_open')),
+  primary key (upload_id, awb)
+);
+alter table public.pod_request_items enable row level security;
+drop policy if exists pod_request_items_read on public.pod_request_items;
+create policy pod_request_items_read on public.pod_request_items for select to authenticated
+  using (upload_id in (select id from public.case_uploads));   -- same visibility as the submission
+
+/**
+ * Called by the server (service role) right after a submission: looks every AWB up in pod_index and marks
+ * the matching open cases "POD shared" with the link. One result row per AWB. Lost / closed cases are left alone.
+ */
+create or replace function public.apply_pod_request(p_upload_id uuid, p_awbs text[], p_actor uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_up public.case_uploads%rowtype;
+  v_awb text;
+  v_link text;
+  v_links int;
+  v_case public.cases%rowtype;
+  v_cat public.status_category;
+  v_result text;
+  v_found int := 0;
+  v_total int := 0;
+begin
+  select * into v_up from public.case_uploads where id = p_upload_id for update;
+  if not found then raise exception 'Submission not found'; end if;
+  for v_awb in select distinct upper(regexp_replace(coalesce(a, ''), '\s', '', 'g')) from unnest(p_awbs) a loop
+    continue when v_awb = '';
+    v_total := v_total + 1;
+    select pod_link, count(*) over () into v_link, v_links from public.pod_index
+     where awb = v_awb order by scan_date desc nulls last, first_seen_at desc limit 1;
+    select c.* into v_case from public.cases c
+     where c.awb = v_awb and not c.is_deleted and (v_up.client_id is null or c.client_id = v_up.client_id or c.client_id is null)
+     order by (select category = 'open' from public.status_master where code = c.team_status) desc, c.created_at desc limit 1;
+    if not found then v_case := null; end if;
+    v_cat := case when v_case.id is null then null else public.status_category_of(v_case.team_status) end;
+    if v_link is null then
+      v_result := 'not_found';
+    elsif v_case.id is not null and v_cat = 'open' then
+      v_result := case when v_case.team_status = 'pod_shared' and v_case.pod_link = v_link then 'already_shared' else 'shared' end;
+      update public.cases set pod_link = v_link, pod_status = 'shared', team_status = 'pod_shared', status_source = 'app',
+             last_change_source = 'pod_sheet', last_changed_by = p_actor
+       where id = v_case.id and (team_status <> 'pod_shared' or pod_link is distinct from v_link or pod_status <> 'shared');
+      v_found := v_found + 1;
+    elsif v_case.id is null then
+      v_result := 'shared';   -- link found; no case to update (should not happen after a submission)
+      v_found := v_found + 1;
+    else
+      v_result := 'not_open'; -- closed or Lost: link shown, case not changed
+      v_found := v_found + 1;
+    end if;
+    insert into public.pod_request_items (upload_id, awb, case_id, pod_link, other_links, result)
+    values (p_upload_id, v_awb, v_case.id, v_link, greatest(coalesce(v_links, 0) - 1, 0), v_result)
+    on conflict (upload_id, awb) do update set case_id = excluded.case_id, pod_link = excluded.pod_link,
+      other_links = excluded.other_links, result = excluded.result;
+  end loop;
+  update public.case_uploads
+     set pod_checked_at = now(), pod_requested = v_total, pod_found = v_found,
+         request_no = coalesce(request_no, nextval('public.pod_request_seq'))
+   where id = p_upload_id
+   returning * into v_up;
+  if v_total > 0 then
+    perform public.notify_internal('pod_request',
+      'POD request PR-' || v_up.request_no || ' from ' || coalesce((select name from public.clients where id = v_up.client_id), v_up.uploader_name, 'a client') ||
+        ': ' || v_found || ' of ' || v_total || ' found in the POD sheets',
+      case when v_total > v_found then (v_total - v_found) || ' AWB(s) still need a POD.' end,
+      null, '/cases/upload?upload=' || p_upload_id);
+    if v_up.uploaded_by is not null then
+      insert into public.notifications (user_id, type, title, body, link)
+      values (v_up.uploaded_by, 'pod_request', 'PR-' || v_up.request_no || ': ' || v_found || ' of ' || v_total || ' POD(s) shared',
+              case when v_total > v_found then 'Shadowfax is working on the other ' || (v_total - v_found) || '.' end,
+              '/portal/new?upload=' || p_upload_id);
+    end if;
+  end if;
+  return jsonb_build_object('total', v_total, 'found', v_found, 'request_no', v_up.request_no);
+end $$;
+revoke execute on function public.apply_pod_request(uuid, text[], uuid) from public, anon, authenticated;
+grant execute on function public.apply_pod_request(uuid, text[], uuid) to service_role;
+
+-- ---------- Complaints about a shared POD: raised by the client (or team), solved by the team ----------
+create unique index if not exists pod_complaints_one_open on public.pod_complaints (case_id) where status = 'open';
+alter table public.pod_complaints enable row level security;
+drop policy if exists pod_complaints_read on public.pod_complaints;
+create policy pod_complaints_read on public.pod_complaints for select to authenticated
+  using ((select public.is_internal())
+         or case_id in (select id from public.cases where client_id in (select public.poc_client_ids())));
+drop trigger if exists audit_pod_complaints on public.pod_complaints;
+create trigger audit_pod_complaints after insert or update or delete on public.pod_complaints
+  for each row execute function public.audit_row();
+
+create or replace function public.raise_pod_complaint(p_case_ids uuid[], p_note text)
+returns int language plpgsql security definer set search_path = public as $$
+declare
+  v_role public.user_role := public.app_role();
+  v_case public.cases%rowtype;
+  n int := 0;
+begin
+  if v_role is null then raise exception 'Not signed in or account inactive'; end if;
+  if length(trim(coalesce(p_note, ''))) < 3 then raise exception 'Tell us what is wrong with the POD'; end if;
+  for v_case in select * from public.cases where id = any (p_case_ids) and not is_deleted for update loop
+    if v_role = 'client_poc' and (v_case.client_id is null or v_case.client_id not in (select public.poc_client_ids())) then
+      raise exception 'Case not found';
+    end if;
+    continue when public.status_category_of(v_case.team_status) in ('lost', 'lost_pending');
+    continue when exists (select 1 from public.pod_complaints where case_id = v_case.id and status = 'open');
+    insert into public.pod_complaints (case_id, raised_by, note, old_link) values (v_case.id, auth.uid(), trim(p_note), v_case.pod_link);
+    update public.cases set team_status = 'pending', pod_status = 'pending', status_source = 'app',
+           last_change_source = case when v_role = 'client_poc' then 'poc' else 'app' end, last_changed_by = auth.uid()
+     where id = v_case.id;
+    insert into public.case_updates (case_id, action, note, source, client_visible, user_id)
+    values (v_case.id, 'pod_complaint', 'Problem with the shared POD: ' || trim(p_note),
+            case when v_role = 'client_poc' then 'poc' else 'app' end, true, auth.uid());
+    n := n + 1;
+  end loop;
+  if n > 0 then
+    perform public.notify_internal('pod_complaint',
+      n || ' POD complaint' || case when n = 1 then '' else 's' end || ' raised',
+      left(trim(p_note), 200), case when n = 1 then p_case_ids[1] end, '/cases?category=complaints');
+  end if;
+  return n;
+end $$;
+revoke execute on function public.raise_pod_complaint(uuid[], text) from public, anon;
+grant execute on function public.raise_pod_complaint(uuid[], text) to authenticated;
+
+-- Team: close the complaint, optionally with a corrected POD link (case becomes "POD shared" again).
+create or replace function public.resolve_pod_complaint(p_case_id uuid, p_resolution text, p_link text default null)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_internal() then raise exception 'Only the Shadowfax team can resolve complaints'; end if;
+  update public.pod_complaints set status = 'resolved', resolved_by = auth.uid(), resolved_at = now(),
+         resolution = nullif(trim(coalesce(p_resolution, '')), '')
+   where case_id = p_case_id and status = 'open';
+  if not found then raise exception 'No open complaint on this case'; end if;
+  if nullif(trim(coalesce(p_link, '')), '') is not null then
+    update public.cases set pod_link = trim(p_link), pod_status = 'shared', team_status = 'pod_shared', status_source = 'app',
+           last_change_source = 'app', last_changed_by = auth.uid()
+     where id = p_case_id;
+  end if;
+  insert into public.case_updates (case_id, action, note, source, client_visible, user_id)
+  values (p_case_id, 'complaint_resolved', coalesce('Complaint resolved: ' || nullif(trim(coalesce(p_resolution, '')), ''), 'Complaint resolved'),
+          'app', true, auth.uid());
+end $$;
+revoke execute on function public.resolve_pod_complaint(uuid, text, text) from public, anon;
+grant execute on function public.resolve_pod_complaint(uuid, text, text) to authenticated;

@@ -7,7 +7,7 @@ import type { SearchParams } from '@/lib/flash';
 import { fmtDate, fmtDateTime, clientStatusLabel } from '@/lib/format';
 import { getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
-import { pocComment, pocRequestLost } from '../../actions';
+import { pocComment, pocComplaint, pocRequestLost } from '../../actions';
 
 export const metadata = { title: 'Escalation' };
 
@@ -17,6 +17,7 @@ const FIELD_NAMES: Record<string, string> = {
 const ACTIONS: Record<string, string> = {
   created: 'Escalation registered', lost_requested: 'Lost requested', lost_approved: 'Loss accepted', lost_rejected: 'Lost request rejected',
   lost_sent_back: 'Lost request sent back for investigation', lost_reopened: 'Shipment taken out of Lost',
+  pod_complaint: 'Problem with the POD reported', complaint_resolved: 'POD problem solved',
 };
 
 export default async function PortalCase({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
@@ -28,15 +29,16 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
   // RLS returns nothing for another client's case, so a guessed id is simply "not found".
   const { data: c } = await supabase
     .from('v_cases')
-    .select('id, awb, client_display_name, escalation_date, aging_days, current_aging_days, final_aging_days, status_label, status_color, status_category, hub, location, delivery_date, team_remark, client_remark, pod_status, pod_link, email_subject, closure_date, lost_approved_at, reason, complaint_type')
+    .select('id, awb, client_display_name, escalation_date, aging_days, current_aging_days, final_aging_days, status_label, status_color, status_category, hub, location, delivery_date, team_remark, client_remark, pod_status, pod_link, email_subject, closure_date, lost_approved_at, reason, complaint_type, final_value, otp_delivered, complaint_open')
     .eq('id', id)
     .maybeSingle();
   if (!c) notFound();
-  const [updates, comments, approvals, statuses] = await Promise.all([
+  const [updates, comments, approvals, statuses, complaints] = await Promise.all([
     supabase.from('case_updates').select('id, action, field, old_value, new_value, note, created_at').eq('case_id', id).order('created_at', { ascending: false }),
     supabase.from('case_comments').select('id, body, created_at, user_id').eq('case_id', id).order('created_at'),
     supabase.from('lost_approvals').select('id, status, requested_at, request_reason, decided_at, decision_note').eq('case_id', id).order('requested_at', { ascending: false }),
     getStatuses(supabase),
+    supabase.from('pod_complaints').select('id, note, status, raised_at, resolved_at, resolution').eq('case_id', id).order('raised_at', { ascending: false }),
   ]);
   const label = (field: string | null, v: string | null) => (!v ? '—' : field === 'team_status' ? statuses.find((s) => s.code === v)?.label ?? v : v);
   const canRequest = c.status_category === 'open';
@@ -59,6 +61,8 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
             <dl className="kv">
               <dt>Shadowfax update</dt><dd className="whitespace-pre-wrap">{c.team_remark ?? '—'}</dd>
               <dt>POD</dt><dd>{c.pod_link ? <a href={c.pod_link} target="_blank" rel="noreferrer">View POD</a> : c.pod_status === 'shared' ? 'Shared' : 'Not yet shared'}</dd>
+              {c.final_value != null && (<><dt>Product value</dt><dd>₹{Number(c.final_value).toLocaleString('en-IN')}</dd></>)}
+              {c.otp_delivered != null && (<><dt>OTP delivered</dt><dd>{c.otp_delivered ? 'Yes' : 'No'}</dd></>)}
               <dt>Hub / location</dt><dd>{[c.hub, c.location].filter(Boolean).join(' — ') || '—'}</dd>
               <dt>Delivery date</dt><dd>{fmtDate(c.delivery_date)}</dd>
               <dt>Escalation</dt><dd>{[c.complaint_type, c.reason].filter(Boolean).join(': ') || '—'}</dd>
@@ -85,6 +89,31 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
           </Panel>
         </div>
         <div className="space-y-5">
+          {(c.pod_link || c.pod_status === 'shared' || complaints.data?.length) && (
+            <Panel title="Problem with the POD?">
+              {c.complaint_open ? (
+                <p>You reported a problem; the Shadowfax team is on it.</p>
+              ) : c.pod_link || c.pod_status === 'shared' ? (
+                <form action={pocComplaint} className="space-y-3">
+                  <input type="hidden" name="id" value={c.id} />
+                  <p className="text-ink-soft">If the POD is wrong, unclear or for another shipment, tell us. The case is reopened and our team shares a correct POD.</p>
+                  <Field label="What is wrong?"><textarea name="note" required minLength={3} className="input" /></Field>
+                  <SubmitButton className="btn" confirm="Report a problem with this POD?">Report a problem with this POD</SubmitButton>
+                </form>
+              ) : null}
+              {!!complaints.data?.length && (
+                <ul className="mt-3 space-y-2 border-t border-line pt-3 text-sm">
+                  {complaints.data.map((k) => (
+                    <li key={k.id}>
+                      <span className="font-medium">{k.status === 'open' ? 'Open' : 'Solved'}</span>
+                      <span className="text-ink-soft"> — {fmtDateTime(k.raised_at)}: {k.note}</span>
+                      {k.resolution && <div className="text-ink-soft">Shadowfax: {k.resolution}</div>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          )}
           <Panel title="Lost">
             {canRequest ? (
               <form action={pocRequestLost} className="space-y-3">
