@@ -32,8 +32,9 @@ describe('report email tables', () => {
   };
   const html = statsEmailHtml(stats, null, { intro: 'x', footer: 'y' });
   it('has separate AWB and product value tables, numbered, with full numbers', () => {
-    expect(html).toContain('1. Pending POD client wise — AWBs');
-    expect(html).toContain('2. Pending POD client wise — Product value');
+    expect(html).toContain('1. Pending POD client wise — Product value');
+    expect(html).toContain('2. Pending POD client wise — AWBs');
+    expect(html).not.toContain('Pending POD: <b>');
     expect(html).toContain('Top 20 hubs — Pending POD by Product value');
     expect(html).toContain('>1,000<');
     expect(html).toContain('Total 0–7 days');

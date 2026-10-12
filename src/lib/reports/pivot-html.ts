@@ -77,28 +77,27 @@ export function statsEmailHtml(s: PodStats, y: Yesterday | null, o: { intro: str
       noTotalCol: true,
     });
   }
-  add({ title: 'Pending POD client wise — AWBs (days since escalation):', labels: ['Client'], columns: ageCols, hotFrom: hot, firstTotal,
-    rows: pending.map((c) => ({ labels: [c.client], cells: c.age })) });
   add({ title: `Pending POD client wise — Product value (₹):${v?.pending_no_value ? ` ${fmtNum(v.pending_no_value)} pending AWB(s) have no product value yet (counted as 0).` : ''}`,
     labels: ['Client'], columns: ageCols, hotFrom: hot, firstTotal, rows: pending.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })) });
+  add({ title: 'Pending POD client wise — AWBs (days since escalation):', labels: ['Client'], columns: ageCols, hotFrom: hot, firstTotal,
+    rows: pending.map((c) => ({ labels: [c.client], cells: c.age })) });
   add({ title: 'Top 20 hubs — Pending POD by Product value (₹):', labels: ['Hub', 'City'], columns: ageCols, hotFrom: hot, firstTotal,
     rows: s.by_hub.map((h) => ({ labels: [h.hub, h.city], cells: h.age_value.map(Number) })) });
   add({ title: 'Top 20 hubs — Pending POD AWBs (same hubs):', labels: ['Hub', 'City'], columns: ageCols, hotFrom: hot, firstTotal,
     rows: s.by_hub.map((h) => ({ labels: [h.hub, h.city], cells: h.age })) });
   const open = s.by_client.filter((c) => c.pending + c.lost_pending + c.lost > 0);
-  add({ title: 'Pendency and loss client wise — AWBs (Critical is part of Pending POD, not added again in Total):', labels: ['Client'], columns: statusCols, notInTotal: [1],
-    rows: open.map((c) => ({ labels: [c.client], cells: [c.pending, c.critical, c.lost_pending, c.lost] })) });
   add({ title: 'Pendency and loss client wise — Product value (₹):', labels: ['Client'], columns: statusCols, notInTotal: [1],
     rows: open.map((c) => ({ labels: [c.client], cells: [c.pending_value, c.critical_value, c.lost_pending_value, c.lost_value].map(Number) })) });
+  add({ title: 'Pendency and loss client wise — AWBs (Critical is part of Pending POD, not added again in Total):', labels: ['Client'], columns: statusCols, notInTotal: [1],
+    rows: open.map((c) => ({ labels: [c.client], cells: [c.pending, c.critical, c.lost_pending, c.lost] })) });
   add({ title: 'Top 15 hubs — Loss accepted by Product value (₹):', labels: ['Hub', 'City'], columns: ['Loss accepted AWBs', 'Loss accepted ₹', 'Loss requested AWBs', 'Loss requested ₹'], noTotalCol: true,
     rows: s.hub_loss.map((h) => ({ labels: [h.hub, h.city], cells: [h.lost, Number(h.lost_value), h.lost_pending, Number(h.lost_pending_value)] })) });
   if (o.agents) {
-    add({ title: 'Pending POD agent wise — AWBs:', labels: ['Agent'], columns: ageCols, hotFrom: hot, firstTotal, rows: s.by_agent.map((a) => ({ labels: [a.agent], cells: a.age })) });
     add({ title: 'Pending POD agent wise — Product value (₹):', labels: ['Agent'], columns: ageCols, hotFrom: hot, firstTotal, rows: s.by_agent.map((a) => ({ labels: [a.agent], cells: a.age_value.map(Number) })) });
+    add({ title: 'Pending POD agent wise — AWBs:', labels: ['Agent'], columns: ageCols, hotFrom: hot, firstTotal, rows: s.by_agent.map((a) => ({ labels: [a.agent], cells: a.age })) });
   }
   return `<div style="font-family:Arial,sans-serif;color:#1B2330;font-size:13px">
 <p>Hi All,</p><p>${o.intro}</p>
-<p>Pending POD: <b>${fmtNum(s.pending)}</b> AWBs (₹${n0(v?.pending)}) · Critical over ${s.critical_days} days: <b style="color:${HOT}">${fmtNum(s.critical)}</b> (₹${n0(v?.critical)}) · Loss requested: <b>${fmtNum(s.lost_pending)}</b> (₹${n0(v?.lost_pending)}) · Loss accepted: <b>${fmtNum(s.lost)}</b> (₹${n0(v?.lost)})</p>
 ${sections.join('\n')}
 <p style="margin-top:16px">${o.footer}</p></div>`;
 }

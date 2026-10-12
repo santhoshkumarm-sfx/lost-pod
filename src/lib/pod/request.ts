@@ -76,7 +76,7 @@ export async function checkPodRequest(uploadId: string, awbs: string[], user: Se
     if (setting?.value !== false) {
       const clientName = ((up as { clients?: { name?: string } | null } | null)?.clients?.name) ?? null;
       const list = (items ?? []) as PodItem[];
-      const link = `${publicEnv.siteUrl}/portal/new?upload=${uploadId}`;
+      const link = `${publicEnv.siteUrl}/portal/pod-requests?upload=${uploadId}`;
       let note: string | null = null;
       try {
         if (!bridgeConfigured()) throw new Error('Gmail not connected');

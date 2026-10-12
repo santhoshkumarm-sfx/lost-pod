@@ -96,7 +96,7 @@ export async function pocAddCases(fd: FormData) {
     const rows: UploadRow[] = awbs.map((awb, i) => ({ row: i + 1, awb, escalation_date: esc, ...common }));
     const r = await addPendingCases({ user, clientId, rows, total: rows.length, method: 'manual' });
     const [kind, msg] = submitMessage(r);
-    dest = withFlash(`/portal/new?upload=${r.uploadId ?? ''}`, kind, msg);
+    dest = withFlash(`/portal/pod-requests?upload=${r.uploadId ?? ''}`, kind, msg);
   } catch (e) {
     dest = withFlash('/portal/new', 'error', errorText(e));
   }
@@ -115,7 +115,7 @@ export async function pocUploadCases(fd: FormData) {
     const parsed = await parseUpload(await file.arrayBuffer(), { forClient: true, clients: [], today: todayIn() });
     const r = await addPendingCases({ user, clientId, rows: parsed.rows, parseProblems: parsed.problems, total: parsed.total, method: 'excel', file });
     const [kind, msg] = submitMessage(r);
-    dest = withFlash(`/portal/new?upload=${r.uploadId ?? ''}`, kind, msg);
+    dest = withFlash(`/portal/pod-requests?upload=${r.uploadId ?? ''}`, kind, msg);
   } catch (e) {
     dest = withFlash('/portal/new', 'error', errorText(e));
   }

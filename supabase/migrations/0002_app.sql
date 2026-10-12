@@ -1656,7 +1656,7 @@ begin
       insert into public.notifications (user_id, type, title, body, link)
       values (v_up.uploaded_by, 'pod_request', 'PR-' || v_up.request_no || ': ' || v_found || ' of ' || v_total || ' POD(s) shared',
               case when v_total > v_found then 'Shadowfax is working on the other ' || (v_total - v_found) || '.' end,
-              '/portal/new?upload=' || p_upload_id);
+              '/portal/pod-requests?upload=' || p_upload_id);
     end if;
   end if;
   return jsonb_build_object('total', v_total, 'found', v_found, 'request_no', v_up.request_no);

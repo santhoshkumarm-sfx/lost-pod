@@ -1,5 +1,5 @@
 import { SubmitButton } from '@/components/buttons';
-import { UPLOAD_COLUMNS_SQL, UploadHistory, UploadResult, type PodItemRow, type UploadLog } from '@/components/uploads';
+import { UPLOAD_COLUMNS_SQL, UploadResult, type PodItemRow, type UploadLog } from '@/components/uploads';
 import { Field, Flash, Panel } from '@/components/ui';
 import { requirePoc } from '@/lib/auth';
 import { UPLOAD_COLUMNS } from '@/lib/cases/upload';
@@ -15,9 +15,8 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
   const sp = await searchParams;
   const supabase = await createClient();
   const uploadId = param(sp, 'upload');
-  const [clientsRes, recent, current, podItems] = await Promise.all([
+  const [clientsRes, current, podItems] = await Promise.all([
     supabase.from('clients').select('id, name').order('name'),
-    supabase.from('case_uploads').select(UPLOAD_COLUMNS_SQL).order('created_at', { ascending: false }).limit(15),
     /^[0-9a-f-]{36}$/.test(uploadId) ? supabase.from('case_uploads').select(UPLOAD_COLUMNS_SQL).eq('id', uploadId).maybeSingle() : Promise.resolve({ data: null }),
     /^[0-9a-f-]{36}$/.test(uploadId) ? supabase.from('pod_request_items').select('awb, result, pod_link, other_links, case_id').eq('upload_id', uploadId) : Promise.resolve({ data: [] }),
   ]);
@@ -63,7 +62,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
           </form>
         </Panel>
       </div>
-      <UploadHistory uploads={(recent.data ?? []) as unknown as UploadLog[]} hrefFor={(id) => `/portal/new?upload=${id}`} />
+      <p className="text-ink-soft">Earlier requests and their PODs: <a href="/portal/pod-requests">Requested PODs</a>.</p>
     </>
   );
 }

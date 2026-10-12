@@ -306,11 +306,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       )}
       <PodTiles s={s} href={tileHref} />
 
-      {(['count', 'value'] as const).map((m) => (
+      {(['value', 'count'] as const).map((m) => (
         <PivotTable
           key={`age-${m}`}
           title="Pending POD by age"
-          note={m === 'count' ? `Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.` : `Same shipments, by product value.${valueNote}`}
+          note={m === 'value' ? `Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.${valueNote}` : 'Same shipments, by AWB count.'}
           rowHeader="Client"
           columns={ageCols}
           hotFrom={hot}
@@ -344,7 +344,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         />
       ))}
 
-      {(['count', 'value'] as const).map((m) => (
+      {(['value', 'count'] as const).map((m) => (
         <PivotTable
           key={`status-${m}`}
           title="Pendency and loss — client wise"
@@ -365,7 +365,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
           columnHref={(i) => (statusCats[i] === 'lost_pending' ? '/lost-approval' : cases({ category: statusCats[i] }))}
           totalHref={cases({ category: 'all' })}
           notInTotal={[1]}
-          note={m === 'count' ? `Critical is part of Pending POD, so it is not added again. ${s.auto_lost_days ? `Pending POD not shared within ${s.auto_lost_days} days is raised as a Lost request automatically.` : ''}` : undefined}
+          note={m === 'value' ? `Critical is part of Pending POD, so it is not added again. ${s.auto_lost_days ? `Pending POD not shared within ${s.auto_lost_days} days is raised as a Lost request automatically.` : ''}` : undefined}
         />
       ))}
 
@@ -386,11 +386,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         }))}
       />
 
-      {(['count', 'value'] as const).map((m) => (
+      {(['value', 'count'] as const).map((m) => (
         <PivotTable
           key={`agent-${m}`}
           title="Pending POD — agent × age"
-          note={m === 'count' ? 'Agent = the person assigned in the dashboard, or the agent name in the tracker.' : undefined}
+          note={m === 'value' ? 'Agent = the person assigned in the dashboard, or the agent name in the tracker.' : undefined}
           rowHeader="Agent"
           columns={ageCols}
           hotFrom={hot}

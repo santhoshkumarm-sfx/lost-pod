@@ -61,7 +61,7 @@ export async function buildDailyReport(sb: SupabaseClient, opts: { withAttachmen
   const y = yd.data as Yesterday;
   const filename = `lost-pod-report-${report.report_date}.xlsx`;
   const html = statsEmailHtml(s, y, {
-    intro: `Lost &amp; POD daily report for <b>${fmtDate(y.day)}</b> (yesterday's work; today's comes in tomorrow's report). Numbers as of ${fmtDate(report.report_date)} morning.`,
+    intro: 'Please find below the Lost &amp; POD report. The base data is attached to this email.',
     footer: `${opts.withAttachment ? `Every case is in the attached Excel (${filename}). ` : ''}Open the dashboard for the lists: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a>`,
     agents: true,
   });

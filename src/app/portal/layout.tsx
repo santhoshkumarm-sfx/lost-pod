@@ -15,9 +15,9 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="ml-2 font-normal text-night-text">{(clients ?? []).map((c) => c.name).join(', ')}</span>
           </Link>
           <nav className="flex gap-1 text-sm">
-            <Link href="/portal" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Cases</Link>
+            <Link href="/portal?category=pending_pod" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Pending</Link>
+            <Link href="/portal/pod-requests" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Requested PODs</Link>
             <Link href="/portal/new" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Request POD</Link>
-            <Link href="/portal/requests" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Lost requests</Link>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="text-night-text">{user.full_name ?? user.email}</span>
