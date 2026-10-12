@@ -820,7 +820,7 @@ create or replace function public.app_settings_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if auth.uid() is null then return coalesce(new, old); end if;
-  if coalesce(new.key, old.key) ~ '^(report_|daily_report_|weekly_report_|loss_accepted_|critical_alert_)' and not public.is_super_admin() then
+  if coalesce(new.key, old.key) ~ '^(report_|daily_report_|weekly_report_|loss_accepted_|critical_alert_|auto_lost_)' and not public.is_super_admin() then
     raise exception 'Only a Super Admin can change report schedules and email recipients';
   end if;
   return coalesce(new, old);
@@ -898,6 +898,7 @@ returns jsonb language sql stable security invoker set search_path = public as $
   ph as (select hub_name, n, count(*) as cnt, sum(value) as val from pb group by hub_name, n)
   select jsonb_build_object(
     'critical_days', (select d from k),
+    'auto_lost_days', public.app_setting_int('auto_lost_after_days', 15),
     'total', (select count(*) from base),
     'pending', (select count(*) from base where pending),
     'critical', (select count(*) from base, k where pending and aging_days > k.d),
@@ -1748,3 +1749,50 @@ returns jsonb language sql stable security invoker set search_path = public as $
     'lost_accepted', jsonb_build_object('count', (select count(*) from acc), 'value', (select coalesce(sum(v.value), 0) from acc join v on v.id = acc.case_id)))
 $$;
 grant execute on function public.report_yesterday() to authenticated, service_role;
+
+-- ######## POD not shared within N days → Lost request (automatic) ########
+alter table public.lost_approvals drop constraint if exists lost_approvals_requested_via_check;
+alter table public.lost_approvals add constraint lost_approvals_requested_via_check
+  check (requested_via in ('app', 'poc_portal', 'google_sheet', 'email', 'auto'));
+insert into public.app_settings (key, value, description) values
+  ('auto_lost_after_days', '15', 'Pending POD older than this many days is raised as a Lost request automatically ("POD not shared within N days"). 0 = off.')
+on conflict (key) do nothing;
+
+/**
+ * Raises one Lost request per client (LR-n) for every pending-POD case older than auto_lost_after_days.
+ * A case gets an automatic request only once: if an approver rejects or sends it back, it is not raised again.
+ * Runs with the service role (sync job). Returns the number of cases raised.
+ */
+create or replace function public.auto_lost_requests()
+returns int language plpgsql security definer set search_path = public as $$
+declare
+  v_days int := coalesce(public.app_setting_int('auto_lost_after_days', 15), 0);
+  v_reason text;
+  n int := 0;
+  r record;
+begin
+  if v_days <= 0 then return 0; end if;
+  v_reason := 'POD not shared within ' || v_days || ' days';
+  for r in
+    select c.id, c.team_status from public.cases c
+     join public.status_master s on s.code = c.team_status
+     where not c.is_deleted and s.category = 'open' and c.team_status <> 'pod_shared' and c.pod_status <> 'shared'
+       and public.app_today() - c.escalation_date > v_days
+       and not exists (select 1 from public.pod_complaints k where k.case_id = c.id and k.status = 'open')
+       and not exists (select 1 from public.lost_approvals la where la.case_id = c.id and (la.status = 'pending' or la.requested_via = 'auto'))
+     order by c.client_id, c.escalation_date
+     for update of c skip locked
+  loop
+    insert into public.lost_approvals (case_id, requested_by, requested_via, request_reason, previous_status)
+    values (r.id, null, 'auto', v_reason, r.team_status);
+    insert into public.case_updates (case_id, action, note, source, client_visible, user_id)
+    values (r.id, 'lost_requested', v_reason || ' — raised automatically, waiting for approval', 'app', true, null);
+    perform set_config('app.lost_flow', 'on', true);
+    update public.cases set team_status = 'lost_pending_approval', lost_requested_at = now(), last_change_source = 'app' where id = r.id;
+    perform set_config('app.lost_flow', 'off', true);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+revoke execute on function public.auto_lost_requests() from public, anon, authenticated;
+grant execute on function public.auto_lost_requests() to service_role;

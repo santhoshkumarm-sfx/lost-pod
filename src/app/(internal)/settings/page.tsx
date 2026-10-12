@@ -33,6 +33,7 @@ const LABELS: Record<string, { label: string; kind: Kind }> = {
   weekly_report_recipients: { label: 'Weekly report — To', kind: 'list' },
   weekly_report_cc: { label: 'Weekly report — CC', kind: 'list' },
   critical_aging_days: { label: 'Critical after (days pending POD)', kind: 'json' },
+  auto_lost_after_days: { label: 'POD not shared within (days) → Lost request automatically (0 = off)', kind: 'json' },
   critical_alert_enabled: { label: 'Send the daily critical alert', kind: 'bool' },
   critical_alert_hour: { label: 'Critical alert time (IST)', kind: 'hour' },
   critical_alert_email_to: { label: 'Critical alert — To', kind: 'list' },
@@ -49,7 +50,7 @@ const LABELS: Record<string, { label: string; kind: Kind }> = {
 
 const ROUTING_KEYS = ['notify_admins_by_email', 'lost_request_email_to', 'lost_request_email_cc', 'lost_decision_email_to', 'lost_decision_email_cc'];
 const ACCEPTED_KEYS = ['loss_accepted_email_to', 'loss_accepted_email_cc'];
-const CRITICAL_KEYS = ['critical_alert_enabled', 'critical_alert_hour', 'critical_alert_email_to', 'critical_alert_email_cc', 'critical_alert_to_agents'];
+const CRITICAL_KEYS = ['auto_lost_after_days', 'critical_alert_enabled', 'critical_alert_hour', 'critical_alert_email_to', 'critical_alert_email_cc', 'critical_alert_to_agents'];
 const DAILY_KEYS = ['daily_report_enabled', 'daily_report_hour', 'report_recipients', 'report_cc', 'report_aging_order', 'report_lost_body_days'];
 const WEEKLY_KEYS = ['weekly_report_enabled', 'weekly_report_day', 'weekly_report_hour', 'weekly_report_recipients', 'weekly_report_cc'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -148,7 +149,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
           <Panel title="Scheduled reports">
             <form action={saveSettings} className="space-y-3">
               {!isSuper && <p className="rounded bg-canvas px-3 py-2 text-xs text-ink-soft">Only a Super Admin can change report schedules and recipients.</p>}
-              <h3 className="font-semibold">Daily critical alert (pending POD over the critical days)</h3>
+              <h3 className="font-semibold">Automatic Lost request and daily critical alert</h3>
               <SettingFields keys={CRITICAL_KEYS} all={all} disabled={!isSuper} />
               <h3 className="pt-2 font-semibold">Daily report</h3>
               <SettingFields keys={DAILY_KEYS} all={all} disabled={!isSuper} />

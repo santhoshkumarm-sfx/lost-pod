@@ -196,7 +196,7 @@ export async function syncSource(
 export async function syncSources(
   sb: SupabaseClient,
   opts: { actor: string | null; trigger: 'manual' | 'cron' | 'cli'; sourceIds?: string[]; timeBudgetMs?: number },
-): Promise<{ results: SyncResult[]; remaining: number }> {
+): Promise<{ results: SyncResult[]; remaining: number; autoLost: number }> {
   const started = Date.now();
   const budget = opts.timeBudgetMs ?? 240_000;
   let q = sb.from('sheet_sources').select(SOURCE_COLUMNS).order('last_synced_at', { ascending: true, nullsFirst: true });
@@ -210,14 +210,16 @@ export async function syncSources(
     if (Date.now() - started > budget) break;
     results.push(await syncSource(sb, s, cfg, opts, started + budget));
   }
-  const lost = results.reduce((n, r) => n + r.lostRequests, 0);
+  // POD still not shared after the set number of days → Lost request, one per client (Settings → auto_lost_after_days).
+  const { data: autoLost } = await sb.rpc('auto_lost_requests');
+  const lost = results.reduce((n, r) => n + r.lostRequests, 0) + (Number(autoLost) || 0);
   if (lost > 0) {
     // In-app notifications are created per request by the database.
     // One email per Lost request (per tracker tab and client) created by this run.
     const { emailNewLostRequests } = await import('../notify');
     await emailNewLostRequests();
   }
-  return { results, remaining: sources.length - results.length };
+  return { results, remaining: sources.length - results.length, autoLost: Number(autoLost) || 0 };
 }
 
 export async function getSource(sb: SupabaseClient, id: string): Promise<SheetSource | null> {

@@ -266,11 +266,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   const agentHref = (a: { agent_id: string | null; agent: string }, extra: Record<string, string | null> = {}) =>
     a.agent_id ? { agent: a.agent_id, ...extra } : a.agent === 'Unassigned' ? { agent: 'unassigned', ...extra } : { q: a.agent, ...extra };
   const valueNote = s.value?.pending_no_value ? ` ${fmtNum(s.value.pending_no_value)} pending AWB(s) have no product value yet (counted as ₹0) — add them under Product value & OTP.` : '';
-  const statusCols = [
-    { label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)` }, { label: 'POD shared / closed' },
-    { label: 'Loss requested' }, { label: 'Loss accepted' },
-  ];
-  const statusCats = ['pending_pod', 'critical', 'pod_done', 'lost_pending', 'lost'];
+  const statusCols = [{ label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)` }, { label: 'Loss requested' }, { label: 'Loss accepted' }];
+  const statusCats = ['pending_pod', 'critical', 'lost_pending', 'lost'];
 
   return (
     <>
@@ -338,16 +335,16 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       {(['count', 'value'] as const).map((m) => (
         <PivotTable
           key={`status-${m}`}
-          title={m === 'count' ? 'All cases — client × status — AWBs' : 'All cases — client × status — Product value (₹)'}
+          title={m === 'count' ? 'Pendency and loss — client wise — AWBs' : 'Pendency and loss — client wise — Product value (₹)'}
           rowHeader="Client"
           columns={statusCols}
           format={m === 'value' ? fmtRs : fmtNum}
-          rows={s.by_client.map((c) => ({
+          rows={s.by_client.filter((c) => c.pending + c.lost_pending + c.lost > 0).map((c) => ({
             label: c.client,
             href: cases({ client: clientKey(c.client_id), category: 'all' }),
             cells: (m === 'value'
-              ? [c.pending_value, c.critical_value, c.pod_shared_value, c.lost_pending_value, c.lost_value]
-              : [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost]).map((v, i) => ({
+              ? [c.pending_value, c.critical_value, c.lost_pending_value, c.lost_value]
+              : [c.pending, c.critical, c.lost_pending, c.lost]).map((v, i) => ({
               value: Number(v),
               href: statusCats[i] === 'lost_pending' ? `/lost-approval?client=${clientKey(c.client_id)}` : cases({ client: clientKey(c.client_id), category: statusCats[i] }),
             })),
@@ -355,7 +352,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
           columnHref={(i) => (statusCats[i] === 'lost_pending' ? '/lost-approval' : cases({ category: statusCats[i] }))}
           totalHref={cases({ category: 'all' })}
           notInTotal={[1]}
-          note={m === 'count' ? 'Grand Total counts each case once; Critical is part of Pending POD, so it is not added again.' : undefined}
+          note={m === 'count' ? `Critical is part of Pending POD, so it is not added again. ${s.auto_lost_days ? `Pending POD not shared within ${s.auto_lost_days} days is raised as a Lost request automatically.` : ''}` : undefined}
         />
       ))}
 

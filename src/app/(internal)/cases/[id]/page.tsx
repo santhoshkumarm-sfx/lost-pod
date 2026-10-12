@@ -250,7 +250,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
             ) : c.status_category === 'lost_pending' && pending ? (
               <div className="space-y-3">
                 <p>
-                  Requested by <strong>{pending.requested_via === 'google_sheet' ? 'Google Sheet' : who(pending.requested_by)}</strong> on{' '}
+                  Requested by <strong>{pending.requested_via === 'google_sheet' ? 'Google Sheet' : pending.requested_via === 'auto' ? 'Automatic — POD not shared in time' : who(pending.requested_by)}</strong> on{' '}
                   {fmtDateTime(pending.requested_at)}: “{pending.request_reason}”
                   {pending.request_id && <> · <Link href={`/lost-approval/requests/${pending.request_id}`}>Open the whole request</Link></>}
                 </p>
@@ -302,7 +302,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                   {approvals.data.map((a) => (
                     <li key={a.id} className="text-sm">
                       <span className="font-medium">{a.status === 'pending' ? 'Pending' : a.status === 'approved' ? 'Approved' : a.status === 'rejected' ? 'Rejected' : 'Sent back'}</span>
-                      <span className="text-ink-soft"> — requested {fmtDateTime(a.requested_at)} by {a.requested_via === 'google_sheet' ? 'Google Sheet' : who(a.requested_by)}: {a.request_reason}</span>
+                      <span className="text-ink-soft"> — requested {fmtDateTime(a.requested_at)} by {a.requested_via === 'google_sheet' ? 'Google Sheet' : a.requested_via === 'auto' ? 'Automatic — POD not shared in time' : who(a.requested_by)}: {a.request_reason}</span>
                       {a.decided_at && (
                         <div className="text-ink-soft">
                           Decided {fmtDateTime(a.decided_at)} by {who(a.decided_by)}{a.decision_note ? `: ${a.decision_note}` : ''}

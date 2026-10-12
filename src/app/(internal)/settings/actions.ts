@@ -23,7 +23,7 @@ const BOOL_KEYS = new Set(['notify_admins_by_email', 'daily_report_enabled', 'we
 const LABEL: Record<string, string> = {
   lost_request_email_to: 'Lost requests — To', lost_request_email_cc: 'Lost requests — CC', lost_decision_email_to: 'Rejected / sent back — To',
   lost_decision_email_cc: 'Rejected / sent back — CC', loss_accepted_email_to: 'Loss accepted — To', loss_accepted_email_cc: 'Loss accepted — CC', report_recipients: 'Daily report — To', report_cc: 'Daily report — CC',
-  weekly_report_recipients: 'Weekly report — To', weekly_report_cc: 'Weekly report — CC', critical_alert_email_to: 'Critical alert — To', critical_alert_email_cc: 'Critical alert — CC', critical_aging_days: 'Critical after (days)',
+  weekly_report_recipients: 'Weekly report — To', weekly_report_cc: 'Weekly report — CC', critical_alert_email_to: 'Critical alert — To', critical_alert_email_cc: 'Critical alert — CC', critical_aging_days: 'Critical after (days)', auto_lost_after_days: 'Automatic Lost request after (days)',
 };
 
 const VALIDATORS: Record<string, (v: unknown) => string | null> = {
@@ -42,6 +42,7 @@ const VALIDATORS: Record<string, (v: unknown) => string | null> = {
   critical_alert_email_to: (v) => emails(v) ?? ((v as string[]).length ? null : 'Add at least one address.'),
   critical_alert_email_cc: emails,
   critical_aging_days: (v) => (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 90 ? null : 'A whole number of days (1–90).'),
+  auto_lost_after_days: (v) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 365 ? null : 'A whole number of days (0 = off).'),
   weekly_report_hour: hour,
   weekly_report_day: (v) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 6 ? null : 'A day from 0 (Sunday) to 6 (Saturday).'),
   daily_report_enabled: (v) => (typeof v === 'boolean' ? null : 'true or false.'),

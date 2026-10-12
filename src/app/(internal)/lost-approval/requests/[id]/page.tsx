@@ -60,7 +60,7 @@ export default async function LostRequestPage({ params, searchParams }: { params
         title={`Lost request LR-${r.request_number} · ${r.client_name}`}
         sub={
           <>
-            Requested by <strong>{r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_by_name ?? 'Unknown'}</strong> via {VIA_LABELS[r.requested_via] ?? r.requested_via} on {fmtDateTime(r.created_at)}.
+            Requested by <strong>{r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_via === 'auto' ? 'Automatic — POD not shared in time' : r.requested_by_name ?? 'Unknown'}</strong> via {VIA_LABELS[r.requested_via] ?? r.requested_via} on {fmtDateTime(r.created_at)}.
             {r.reason && <> Reason: “{r.reason}”</>}
           </>
         }
@@ -135,7 +135,7 @@ export default async function LostRequestPage({ params, searchParams }: { params
 
       <Panel title="History">
         <ul className="space-y-2">
-          <li><span className="text-ink-soft">{fmtDateTime(r.created_at)}</span> — Requested: {r.awb_count} AWB(s) by {r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_by_name ?? 'Unknown'}</li>
+          <li><span className="text-ink-soft">{fmtDateTime(r.created_at)}</span> — Requested: {r.awb_count} AWB(s) by {r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_via === 'auto' ? 'Automatic — POD not shared in time' : r.requested_by_name ?? 'Unknown'}</li>
           {[...history.values()].sort((a, b) => a.at.localeCompare(b.at)).map((h) => (
             <li key={`${h.at}${h.status}${h.note}`}>
               <span className="text-ink-soft">{fmtDateTime(h.at)}</span> — {ITEM[h.status]?.label ?? h.status}: {h.n} AWB(s) by {h.by}{h.note ? ` — “${h.note}”` : ''}

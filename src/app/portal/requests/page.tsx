@@ -95,7 +95,7 @@ export default async function PortalRequests({ searchParams }: { searchParams: S
                   <td><Link className="font-semibold" href={`/portal/requests/${r.id}`}>LR-{r.request_number}</Link></td>
                   <td><StatusBadge label={REQUEST_STATUS[r.status]?.client ?? r.status} color={REQUEST_STATUS[r.status]?.color ?? 'slate'} /></td>
                   <td className="whitespace-nowrap">{fmtDateTime(r.created_at)}</td>
-                  <td>{r.requested_via === 'google_sheet' ? 'Your tracker (Google Sheet)' : r.requested_via === 'poc_portal' ? r.requested_by_name ?? 'Your team' : 'Shadowfax team'}</td>
+                  <td>{r.requested_via === 'google_sheet' ? 'Your tracker (Google Sheet)' : r.requested_via === 'auto' ? 'Automatic — POD not shared in time' : r.requested_via === 'poc_portal' ? r.requested_by_name ?? 'Your team' : 'Shadowfax team'}</td>
                   <td className="text-right font-semibold">{fmtNum(r.awb_count)}</td>
                   <td className="text-right">{r.pending ? fmtNum(r.pending) : '—'}</td>
                   <td className="text-right">{r.accepted ? fmtNum(r.accepted) : '—'}</td>

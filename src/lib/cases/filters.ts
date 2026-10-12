@@ -131,7 +131,7 @@ export function statsFilter(f: CaseFilters, extra: Record<string, string> = {}):
 }
 
 export interface PodStats {
-  critical_days: number; total: number; pending: number; critical: number; pod_shared: number; closed: number;
+  critical_days: number; auto_lost_days?: number; total: number; pending: number; critical: number; pod_shared: number; closed: number;
   lost_pending: number; lost: number; new_today: number;
   value?: { total: number; pending: number; critical: number; pod_shared: number; lost_pending: number; lost: number; pending_no_value: number };
   /** Pending POD columns: 0 … 7 days one by one, then 8–10, 11–20, 21–30, 31–60, 61–90, 90+. */

@@ -8,7 +8,7 @@ export interface PivotRow { label: string; href?: string; cells: { value: number
  * Excel-style pivot table: row labels down the side, columns across, Grand Total row and column.
  * Zeros are left blank, like a pivot table; every number links to the matching list of cases.
  */
-export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, actions, noTotalCol, formats }: {
+export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, actions, noTotalCol, formats, keepOrder }: {
   title: string;
   rowHeader: string;
   columns: PivotColumn[];
@@ -27,9 +27,13 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
   noTotalCol?: boolean;
   /** Per-column number formats (overrides `format`). */
   formats?: ((v: number) => string)[];
+  /** Keep the given row order (default: largest Grand Total first). */
+  keepOrder?: boolean;
 }) {
-  const colTotals = columns.map((_, i) => rows.reduce((t, r) => t + (r.cells[i]?.value ?? 0), 0));
   const sum = (vals: number[]) => vals.reduce((t, v, i) => t + (notInTotal.includes(i) ? 0 : v), 0);
+  // Largest to smallest, like a sorted pivot table.
+  if (!keepOrder && !noTotalCol) rows = [...rows].sort((a, b) => sum(b.cells.map((c) => c.value)) - sum(a.cells.map((c) => c.value)));
+  const colTotals = columns.map((_, i) => rows.reduce((t, r) => t + (r.cells[i]?.value ?? 0), 0));
   const grand = sum(colTotals);
   const cell = (v: number, href?: string, bold?: boolean, i?: number) => {
     const f = (i !== undefined && formats?.[i]) || format;

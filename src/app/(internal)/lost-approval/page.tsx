@@ -85,7 +85,7 @@ async function RequestView({ sp, f, user }: { sp: Record<string, string | string
   const sums = ((awbRes.data ?? []) as { pending: number; awb_count: number }[]).reduce((a, r) => ({ pending: a.pending + r.pending, awbs: a.awbs + r.awb_count }), { pending: 0, awbs: 0 });
   const back = `/lost-approval${lostQuery(f)}`;
   const hasFilters = lostFilterEntries(f).some(([k]) => k !== 'view');
-  const via = (r: ReqRow) => (r.requested_via === 'google_sheet' ? 'Google Sheet' : `${r.requested_by_name ?? 'Unknown'}${r.requested_via === 'poc_portal' ? ' (client)' : ''}`);
+  const via = (r: ReqRow) => (r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_via === 'auto' ? 'Automatic — POD not shared in time' : `${r.requested_by_name ?? 'Unknown'}${r.requested_via === 'poc_portal' ? ' (client)' : ''}`);
 
   return (
     <>
@@ -250,7 +250,7 @@ async function AwbView({ sp, f, user }: { sp: Record<string, string | string[] |
   const back = `/lost-approval${lostQuery(f)}`;
   const hasFilters = lostFilterEntries(f).some(([k]) => k !== 'view');
   const requester = (r: Req) =>
-    r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_via === 'email' ? 'Email' : `${r.requested_by_name ?? 'Unknown'}${r.requested_by_role === 'client_poc' ? ' (client)' : ''}`;
+    r.requested_via === 'google_sheet' ? 'Google Sheet' : r.requested_via === 'auto' ? 'Automatic — POD not shared in time' : r.requested_via === 'email' ? 'Email' : `${r.requested_by_name ?? 'Unknown'}${r.requested_by_role === 'client_poc' ? ' (client)' : ''}`;
 
   return (
     <>

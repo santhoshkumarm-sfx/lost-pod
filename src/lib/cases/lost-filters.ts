@@ -83,6 +83,7 @@ export const VIA_LABELS: Record<string, string> = {
   app: 'Shadowfax team',
   poc_portal: 'Client portal',
   google_sheet: 'Google Sheet',
+  auto: 'Automatic (POD not shared in time)',
   email: 'Email',
 };
 

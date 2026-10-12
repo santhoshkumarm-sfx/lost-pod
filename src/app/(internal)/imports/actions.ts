@@ -27,7 +27,7 @@ export async function syncNow(fd: FormData) {
   const ids = fd.getAll('source_id').map(String).filter(Boolean);
   const back = str(fd, 'back') || '/imports';
   await done(back, async () => {
-    const { results, remaining } = await syncSources(createAdminClient(), {
+    const { results, remaining, autoLost } = await syncSources(createAdminClient(), {
       actor: user.id, trigger: 'manual', sourceIds: ids.length ? ids : undefined, timeBudgetMs: 240_000,
     });
     if (!results.length) return 'No active tabs to sync.';
@@ -38,6 +38,7 @@ export async function syncNow(fd: FormData) {
     msg += '.';
     if (failed.length) msg += ` ${failed.length} failed: ${failed.map((f) => `${f.label} (${f.message})`).join('; ')}`;
     if (remaining) msg += ` ${remaining} tab(s) left for the next run.`;
+    if (autoLost) msg += ` ${autoLost} shipment(s) with no POD in time were raised as Lost requests.`;
     return msg;
   });
 }

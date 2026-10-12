@@ -59,7 +59,7 @@ interface RequestRow {
   requested_via: string; reason: string | null; created_at: string;
 }
 
-const VIA: Record<string, string> = { app: 'the Shadowfax dashboard', poc_portal: 'the client portal', google_sheet: 'Google Sheets', email: 'email' };
+const VIA: Record<string, string> = { app: 'the Shadowfax dashboard', poc_portal: 'the client portal', google_sheet: 'Google Sheets', email: 'email', auto: 'the automatic rule (POD not shared in time)' };
 
 async function requestCases(sb: SupabaseClient, requestId: string): Promise<(CaseLine & { assigned_agent: string | null })[]> {
   const { data } = await sb.from('lost_approvals').select('case_id').eq('request_id', requestId);
