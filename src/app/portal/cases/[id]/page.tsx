@@ -84,7 +84,7 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
             <form action={pocComment} className="space-y-2">
               <input type="hidden" name="id" value={c.id} />
               <textarea name="body" required className="input" placeholder="Write to the Shadowfax team" />
-              <SubmitButton className="btn">Send message</SubmitButton>
+              <SubmitButton cancel className="btn">Send message</SubmitButton>
             </form>
           </Panel>
         </div>
@@ -98,7 +98,7 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
                   <input type="hidden" name="id" value={c.id} />
                   <p className="text-ink-soft">If the POD is wrong, unclear or for another shipment, tell us. The case is reopened and our team shares a correct POD.</p>
                   <Field label="What is wrong?"><textarea name="note" required minLength={3} className="input" /></Field>
-                  <SubmitButton className="btn" confirm="Report a problem with this POD?">Report a problem with this POD</SubmitButton>
+                  <SubmitButton cancel className="btn" confirm="Report a problem with this POD?">Report a problem with this POD</SubmitButton>
                 </form>
               ) : null}
               {!!complaints.data?.length && (
@@ -120,7 +120,7 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
                 <input type="hidden" name="id" value={c.id} />
                 <p className="text-ink-soft">If the shipment cannot be traced, ask Shadowfax to declare it Lost. A Shadowfax admin reviews every request.</p>
                 <Field label="Reason"><textarea name="reason" required minLength={5} className="input" /></Field>
-                <SubmitButton className="btn" confirm="Send a Lost request for this shipment?">Request Lost</SubmitButton>
+                <SubmitButton cancel className="btn" confirm="Send a Lost request for this shipment?">Request Lost</SubmitButton>
               </form>
             ) : c.status_category === 'lost_pending' ? (
               <p>Your Lost request is being reviewed by Shadowfax.</p>

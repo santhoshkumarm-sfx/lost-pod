@@ -79,7 +79,7 @@ export default async function ValuesPage({ searchParams }: { searchParams: Searc
           <form action={uploadValues} className="space-y-3">
             <p className="text-xs text-ink-soft">Columns used: <strong>AWB</strong> (required), <strong>Product value</strong>, <strong>OTP delivered</strong> (Yes / No). Date, Client and other columns are ignored. The file is kept in Drive.</p>
             <Field label="Excel file (.xlsx)"><input type="file" name="file" accept=".xlsx" required className="input" /></Field>
-            <SubmitButton pending="Saving values…">Upload and save</SubmitButton>
+            <SubmitButton cancel pending="Saving values…">Upload and save</SubmitButton>
           </form>
         </Panel>
         <Panel title="One AWB">
@@ -89,7 +89,7 @@ export default async function ValuesPage({ searchParams }: { searchParams: Searc
             <Field label="OTP delivered">
               <select name="otp_delivered" className="input"><option value="">Leave as it is</option><option value="yes">Yes</option><option value="no">No</option></select>
             </Field>
-            <SubmitButton className="btn">Save</SubmitButton>
+            <SubmitButton cancel className="btn">Save</SubmitButton>
           </form>
         </Panel>
       </div>

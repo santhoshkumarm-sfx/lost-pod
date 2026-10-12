@@ -8,7 +8,7 @@ export interface PivotRow { label: string; href?: string; cells: { value: number
  * Excel-style pivot table: row labels down the side, columns across, Grand Total row and column.
  * Zeros are left blank, like a pivot table; every number links to the matching list of cases.
  */
-export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [] }: {
+export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, actions }: {
   title: string;
   rowHeader: string;
   columns: PivotColumn[];
@@ -18,20 +18,28 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
   note?: string;
   /** Column indexes that are a subset of another column and must not be added into the Grand Total. */
   notInTotal?: number[];
+  /** How numbers are shown (counts by default; e.g. ₹ for product value). */
+  format?: (v: number) => string;
+  /** Columns from this index on get the "critical" header colour. */
+  hotFrom?: number;
+  actions?: React.ReactNode;
 }) {
   const colTotals = columns.map((_, i) => rows.reduce((t, r) => t + (r.cells[i]?.value ?? 0), 0));
   const sum = (vals: number[]) => vals.reduce((t, v, i) => t + (notInTotal.includes(i) ? 0 : v), 0);
   const grand = sum(colTotals);
   const cell = (v: number, href?: string, bold?: boolean) =>
-    v ? (href ? <Link href={href} className={`text-inherit no-underline hover:underline ${bold ? 'font-semibold' : ''}`}>{fmtNum(v)}</Link> : fmtNum(v)) : '';
-  const th = 'border border-[#2A4066] bg-[#14223A] px-2 py-2 text-xs font-semibold uppercase tracking-wide text-white';
-  const td = 'border border-[#DCDFD8] px-2 py-2 text-center text-[15px] tabular-nums';
-  const foot = 'border border-[#B9C6DA] border-t-2 border-t-[#14223A] bg-[#E6ECF5] px-2 py-2 text-[15px] font-bold tabular-nums';
+    v ? (href ? <Link href={href} className={`text-inherit no-underline hover:underline ${bold ? 'font-semibold' : ''}`}>{format(v)}</Link> : format(v)) : '';
+  const th = 'border border-[#2A4066] bg-[#14223A] px-1 py-2 text-xs font-semibold uppercase tracking-wide text-white';
+  const td = `border border-[#DCDFD8] px-1 py-2 text-center tabular-nums ${columns.length > 10 ? 'text-[13px]' : 'text-[15px]'}`;
+  const foot = `border border-[#B9C6DA] border-t-2 border-t-[#14223A] bg-[#E6ECF5] px-1 py-2 font-bold tabular-nums ${columns.length > 10 ? 'text-[13px]' : 'text-[15px]'}`;
   return (
     <section className="panel mb-5 overflow-hidden">
-      <div className="border-b border-line px-4 py-3">
-        <h2 className="text-base font-semibold text-ink">{title}</h2>
-        {note && <p className="mt-0.5 text-xs text-ink-soft">{note}</p>}
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-line px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">{title}</h2>
+          {note && <p className="mt-0.5 text-xs text-ink-soft">{note}</p>}
+        </div>
+        {actions}
       </div>
       <div className="overflow-x-auto p-3">
         <table className="w-full table-fixed border-collapse bg-white">
@@ -43,7 +51,7 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
           <thead>
             <tr>
               <th className={`${th} px-3 text-left`}>{rowHeader}</th>
-              {columns.map((c) => <th key={c.label} className={`${th} text-center`}>{c.label}</th>)}
+              {columns.map((c, i) => <th key={c.label} className={`${th} text-center ${hotFrom !== undefined && i >= hotFrom ? 'bg-[#7E2A26]' : ''}`}>{c.label}</th>)}
               <th className={`${th} bg-[#2A4066] text-center`}>Grand Total</th>
             </tr>
           </thead>

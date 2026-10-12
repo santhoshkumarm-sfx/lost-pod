@@ -109,7 +109,7 @@ export default async function SourcePage({ params, searchParams }: { params: Pro
               <label className="flex items-center gap-2">
                 <input type="checkbox" name="is_active" value="1" defaultChecked={source.is_active} /> Include in scheduled syncs
               </label>
-              {admin && <SubmitButton>Save settings</SubmitButton>}
+              {admin && <SubmitButton cancel>Save settings</SubmitButton>}
             </fieldset>
           </form>
         </Panel>
@@ -160,7 +160,7 @@ export default async function SourcePage({ params, searchParams }: { params: Pro
               </table>
               {admin && (
                 <div className="border-t border-line px-4 py-3">
-                  <SubmitButton>Save mapping</SubmitButton>
+                  <SubmitButton cancel>Save mapping</SubmitButton>
                 </div>
               )}
             </form>

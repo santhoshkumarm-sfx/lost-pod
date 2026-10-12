@@ -98,7 +98,7 @@ export default async function PocsPage({ searchParams }: { searchParams: SearchP
             <Field label="Phone"><input name="phone" className="input" /></Field>
             <Field label="Password (optional)" hint="Empty = invitation email"><input name="password" type="password" minLength={10} className="input" autoComplete="new-password" /></Field>
             <label className="flex items-center gap-2 pt-5"><input type="checkbox" name="create_login" value="1" /> Create a portal login</label>
-            <div><SubmitButton>Add POC</SubmitButton></div>
+            <div><SubmitButton cancel>Add POC</SubmitButton></div>
           </form>
         </Panel>
       )}

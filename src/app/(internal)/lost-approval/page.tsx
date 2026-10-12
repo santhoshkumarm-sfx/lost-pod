@@ -164,7 +164,7 @@ async function RequestView({ sp, f, user }: { sp: Record<string, string | string
             </label>
             <SubmitButton name="decision" value="approved" className="btn btn-danger" pending="Accepting…" confirm="Accept the loss for every waiting AWB in the chosen requests? The client is told.">Accept loss (all AWBs)</SubmitButton>
             <SubmitButton name="decision" value="rejected" className="btn" pending="Rejecting…">Reject</SubmitButton>
-            <SubmitButton name="decision" value="sent_back" className="btn" pending="Sending back…">Send back</SubmitButton>
+            <SubmitButton cancel name="decision" value="sent_back" className="btn" pending="Sending back…">Send back</SubmitButton>
           </div>
         )}
         <div className="tbl-wrap">
@@ -342,7 +342,7 @@ async function AwbView({ sp, f, user }: { sp: Record<string, string | string[] |
             </label>
             <SubmitButton name="decision" value="approved" className="btn btn-danger" pending="Approving…" confirm="Approve Lost for the chosen requests? The shipments become Lost and the client is told.">Approve Lost</SubmitButton>
             <SubmitButton name="decision" value="rejected" className="btn" pending="Rejecting…">Reject</SubmitButton>
-            <SubmitButton name="decision" value="sent_back" className="btn" pending="Sending back…">Send back</SubmitButton>
+            <SubmitButton cancel name="decision" value="sent_back" className="btn" pending="Sending back…">Send back</SubmitButton>
           </div>
         )}
         <div className="tbl-wrap">

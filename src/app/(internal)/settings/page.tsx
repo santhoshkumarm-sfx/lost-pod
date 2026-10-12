@@ -134,7 +134,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
                 Request emails also go to that client’s approvers. Separate addresses with commas. Sent from the bridge’s Gmail.
               </p>
               <SettingFields keys={ROUTING_KEYS} all={all} />
-              <SubmitButton>Save email routing</SubmitButton>
+              <SubmitButton cancel>Save email routing</SubmitButton>
             </form>
           </Panel>
           <Panel title="Loss accepted emails">
@@ -142,7 +142,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
               <p className="text-xs text-ink-soft">Sent every time a loss is accepted, one email per request, with the AWBs and their Lost aging. The person who asked is always copied.</p>
               {!isSuper && <p className="rounded bg-canvas px-3 py-2 text-xs text-ink-soft">Only a Super Admin can change who receives these.</p>}
               <SettingFields keys={ACCEPTED_KEYS} all={all} disabled={!isSuper} />
-              {isSuper && <SubmitButton>Save loss accepted recipients</SubmitButton>}
+              {isSuper && <SubmitButton cancel>Save loss accepted recipients</SubmitButton>}
             </form>
           </Panel>
           <Panel title="Scheduled reports">
@@ -154,14 +154,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
               <SettingFields keys={DAILY_KEYS} all={all} disabled={!isSuper} />
               <h3 className="pt-2 font-semibold">Weekly summary</h3>
               <SettingFields keys={WEEKLY_KEYS} all={all} disabled={!isSuper} />
-              {isSuper && <SubmitButton>Save report schedule</SubmitButton>}
+              {isSuper && <SubmitButton cancel>Save report schedule</SubmitButton>}
               <p className="text-xs text-ink-faint">The scheduler checks every hour (once a day at 09:00 IST on the Vercel free plan). Preview or send now from Reports.</p>
             </form>
           </Panel>
           <Panel title="General">
             <form action={saveSettings} className="space-y-3">
               <SettingFields keys={general} all={all} />
-              <SubmitButton>Save settings</SubmitButton>
+              <SubmitButton cancel>Save settings</SubmitButton>
             </form>
           </Panel>
         </div>
@@ -182,7 +182,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
                   defaultValue={buckets.map((b) => (b.max_days === null ? `${b.min_days}+` : `${b.min_days}-${b.max_days}`)).join('\n')}
                 />
               </Field>
-              <SubmitButton className="btn">Save buckets</SubmitButton>
+              <SubmitButton cancel className="btn">Save buckets</SubmitButton>
             </form>
           </Panel>
         </div>
@@ -236,7 +236,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
             <select name="color" className="input">{STATUS_COLORS.map((c) => <option key={c}>{c}</option>)}</select>
           </Field>
           <Field label="Order"><input name="sort_order" type="number" defaultValue={45} className="input" /></Field>
-          <SubmitButton className="btn">Add status</SubmitButton>
+          <SubmitButton cancel className="btn">Add status</SubmitButton>
         </form>
         <p className="px-4 pb-4 text-xs text-ink-faint">Order also decides which status wins when a tracker row mentions several. Lost statuses are built in and can only be reached through approval.</p>
       </Panel>

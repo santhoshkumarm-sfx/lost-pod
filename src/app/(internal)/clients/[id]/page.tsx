@@ -68,7 +68,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
               </Field>
               <Field label="TAT in days" hint="Empty = default from Settings"><input name="sla_days" type="number" min={1} defaultValue={c.sla_days ?? ''} className="input" /></Field>
               <label className="flex items-center gap-2"><input type="checkbox" name="is_active" value="1" defaultChecked={c.is_active} /> Active</label>
-              {admin && <SubmitButton>Save client</SubmitButton>}
+              {admin && <SubmitButton cancel>Save client</SubmitButton>}
             </fieldset>
           </form>
         </Panel>
@@ -125,7 +125,7 @@ export default async function ClientPage({ params, searchParams }: { params: Pro
               <Field label="Phone"><input name="phone" className="input" /></Field>
               <Field label="Password (optional)" hint="Leave empty to send an invitation email instead."><input name="password" type="password" minLength={10} className="input" autoComplete="new-password" /></Field>
               <label className="flex items-center gap-2"><input type="checkbox" name="create_login" value="1" /> Create a portal login (sees only {c.name} cases)</label>
-              <div><SubmitButton>Add POC</SubmitButton></div>
+              <div><SubmitButton cancel>Add POC</SubmitButton></div>
             </form>
           )}
         </Panel>

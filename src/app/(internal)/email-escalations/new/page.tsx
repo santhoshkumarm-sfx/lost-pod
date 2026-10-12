@@ -109,7 +109,7 @@ export default async function NewEmailPage({ searchParams }: { searchParams: Sea
             <Field label="Email text" className="md:col-span-3" hint="Paste the whole message, including any AWB table.">
               <textarea name="body" required rows={12} className="input font-mono text-xs" />
             </Field>
-            <div><SubmitButton pending="Reading…">Read email</SubmitButton></div>
+            <div><SubmitButton cancel pending="Reading…">Read email</SubmitButton></div>
           </form>
         </Panel>
       )}

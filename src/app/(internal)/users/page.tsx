@@ -179,7 +179,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
           <Field label="Password (optional)" hint="Empty = Supabase emails an invitation to set a password.">
             <input name="password" type="password" minLength={10} className="input" autoComplete="new-password" />
           </Field>
-          <div className="pt-5"><SubmitButton pending="Creating…">Add user</SubmitButton></div>
+          <div className="pt-5"><SubmitButton cancel pending="Creating…">Add user</SubmitButton></div>
         </form>
       </Panel>
     </>

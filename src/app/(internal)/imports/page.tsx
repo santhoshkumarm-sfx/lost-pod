@@ -86,7 +86,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
               <textarea name="workbooks" rows={Math.max(2, books.length + 1)} className="input font-mono text-xs"
                 defaultValue={books.map((b) => `https://docs.google.com/spreadsheets/d/${b.id} | ${b.name}`).join('\n')} />
             </Field>
-            <SubmitButton className="btn btn-sm">Save POD workbooks</SubmitButton>
+            <SubmitButton cancel className="btn btn-sm">Save POD workbooks</SubmitButton>
           </form>
         )}
       </Panel>
@@ -201,7 +201,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </Field>
-            <SubmitButton pending="Reading workbook…" disabled={!g.sheets}>Add workbook</SubmitButton>
+            <SubmitButton cancel pending="Reading workbook…" disabled={!g.sheets}>Add workbook</SubmitButton>
           </form>
         </Panel>
       )}

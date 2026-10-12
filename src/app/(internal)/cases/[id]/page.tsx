@@ -140,7 +140,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <input type="hidden" name="id" value={c.id} />
                 <Field label="Correct POD link (optional)"><input name="pod_link" type="url" className="input" /></Field>
                 <Field label="Note to the client"><input name="resolution" className="input" placeholder="e.g. Correct POD shared" /></Field>
-                <SubmitButton className="btn btn-primary">Mark solved</SubmitButton>
+                <SubmitButton cancel className="btn btn-primary">Mark solved</SubmitButton>
               </form>
             </Panel>
           )}
@@ -209,7 +209,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <Field label="Client remark" className="md:col-span-3">
                   <textarea name="client_remark" defaultValue={c.client_remark ?? ''} className="input" />
                 </Field>
-                <div className="md:col-span-3"><SubmitButton>Save changes</SubmitButton></div>
+                <div className="md:col-span-3"><SubmitButton cancel>Save changes</SubmitButton></div>
               </fieldset>
             </form>
           </Panel>
@@ -230,7 +230,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                     <option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option>
                   </select>
                 </Field>
-                <SubmitButton className="btn">Save for this AWB</SubmitButton>
+                <SubmitButton cancel className="btn">Save for this AWB</SubmitButton>
               </form>
             ) : (
               <p className="text-xs text-ink-soft">An Admin or Super Admin can set these (here, or for many AWBs at once under Product value &amp; OTP).</p>
@@ -245,7 +245,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 <Field label="Why should this shipment be declared Lost?">
                   <textarea name="reason" required className="input" />
                 </Field>
-                <SubmitButton className="btn">Request Lost approval</SubmitButton>
+                <SubmitButton cancel className="btn">Request Lost approval</SubmitButton>
               </form>
             ) : c.status_category === 'lost_pending' && pending ? (
               <div className="space-y-3">
@@ -264,7 +264,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                     <div className="flex flex-wrap gap-2">
                       <SubmitButton name="decision" value="approved" className="btn btn-danger" confirm={`Approve Lost for ${c.awb}? Lost aging will be ${c.current_aging_days} days from the original escalation date.`}>Approve Lost</SubmitButton>
                       <SubmitButton name="decision" value="rejected" className="btn">Reject</SubmitButton>
-                      <SubmitButton name="decision" value="sent_back" className="btn">Send back for investigation</SubmitButton>
+                      <SubmitButton cancel name="decision" value="sent_back" className="btn">Send back for investigation</SubmitButton>
                     </div>
                   </form>
                 ) : (
@@ -287,7 +287,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                         </select>
                       </Field>
                       <Field label="Reason"><input name="note" required className="input" /></Field>
-                      <SubmitButton className="btn" confirm="Take this case out of Lost?">Reopen</SubmitButton>
+                      <SubmitButton cancel className="btn" confirm="Take this case out of Lost?">Reopen</SubmitButton>
                     </form>
                   </details>
                 )}
@@ -335,7 +335,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                   <option value="internal">Internal only</option>
                   <option value="client">Share with client POC</option>
                 </select>
-                <SubmitButton className="btn">Add comment</SubmitButton>
+                <SubmitButton cancel className="btn">Add comment</SubmitButton>
               </div>
             </form>
           </Panel>

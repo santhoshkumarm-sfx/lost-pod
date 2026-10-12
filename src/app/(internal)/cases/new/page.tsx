@@ -76,7 +76,7 @@ export default async function NewCasePage({ searchParams }: { searchParams: Sear
             </Field>
           </div>
           <div className="mt-5 flex items-center gap-4">
-            <SubmitButton pending="Creating…">Create case</SubmitButton>
+            <SubmitButton cancel pending="Creating…">Create case</SubmitButton>
             <label className="flex items-center gap-2 text-ink-soft">
               <input type="checkbox" name="confirm_duplicates" value="1" /> Create anyway if an open case exists for the AWB
             </label>

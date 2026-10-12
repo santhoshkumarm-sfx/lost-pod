@@ -66,7 +66,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
               <Field label="Recipients" hint="Empty = the usual To and CC lists">
                 <input name="to" className="input" placeholder="Leave empty for the usual list" />
               </Field>
-              <SubmitButton pending="Building and sending…" disabled={!g.gmail} confirm={`Send the ${label} now?`}>
+              <SubmitButton cancel pending="Building and sending…" disabled={!g.gmail} confirm={`Send the ${label} now?`}>
                 Send {label}
               </SubmitButton>
             </form>

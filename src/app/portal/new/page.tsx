@@ -48,7 +48,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
             </div>
             <Field label="Reason (optional)"><input name="reason" className="input" placeholder="e.g. Customer says not received" /></Field>
             <Field label="Remark (optional)"><input name="remark" className="input" /></Field>
-            <SubmitButton pending="Checking PODs…">Request POD</SubmitButton>
+            <SubmitButton cancel pending="Checking PODs…">Request POD</SubmitButton>
           </form>
         </Panel>
         <Panel title="Upload Excel">
@@ -59,7 +59,7 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
             </p>
             {pick}
             <Field label="Filled-in template (.xlsx)"><input type="file" name="file" accept=".xlsx" required className="input" /></Field>
-            <SubmitButton pending="Reading and checking PODs…">Upload and request POD</SubmitButton>
+            <SubmitButton cancel pending="Reading and checking PODs…">Upload and request POD</SubmitButton>
           </form>
         </Panel>
       </div>

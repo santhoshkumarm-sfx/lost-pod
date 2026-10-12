@@ -69,12 +69,13 @@ export function AgingRibbon({ buckets, hrefFor }: { buckets: { label: string; co
   );
 }
 
-export function Kpi({ label, value, href, tone }: { label: string; value: number | string; href?: string; tone?: 'alert' | 'warn' }) {
+export function Kpi({ label, value, href, tone, sub }: { label: string; value: number | string; href?: string; tone?: 'alert' | 'warn'; sub?: string }) {
   const color = tone === 'alert' ? 'text-age-5' : tone === 'warn' ? 'text-age-3' : 'text-ink';
   const inner = (
     <>
       <div className="text-xs text-ink-soft">{label}</div>
       <div className={`mt-0.5 text-2xl font-semibold tabular-nums ${color}`}>{typeof value === 'number' ? fmtNum(value) : value}</div>
+      {sub && <div className="mt-0.5 text-xs font-medium tabular-nums text-ink-soft">{sub}</div>}
     </>
   );
   return href ? (

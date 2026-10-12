@@ -57,7 +57,7 @@ export default async function UploadCasesPage({ searchParams }: { searchParams: 
             {isAdminRole(user.role) && (
               <label className="flex items-center gap-2"><input type="checkbox" name="force" value="1" /> Create even if an open case already exists for the AWB</label>
             )}
-            <SubmitButton pending="Reading and creating…">Upload and create cases</SubmitButton>
+            <SubmitButton cancel pending="Reading and creating…">Upload and create cases</SubmitButton>
             <p className="text-xs text-ink-soft">
               {g.sheets ? 'The file is also saved in Google Drive (Lost POD uploads / Shadowfax team).' : 'Connect the Google bridge to also keep the files in Google Drive.'}
             </p>

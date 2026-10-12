@@ -1,11 +1,13 @@
 'use client';
 import { useFormStatus } from 'react-dom';
 
-export function SubmitButton({ children, pending, className, confirm, name, value, disabled }: {
+export function SubmitButton({ children, pending, className, confirm, name, value, disabled, cancel }: {
   children: React.ReactNode; pending?: string; className?: string; confirm?: string; name?: string; value?: string; disabled?: boolean;
+  /** Show a Cancel button next to it: true = undo what was typed in this form, a string = go to that page. */
+  cancel?: boolean | string;
 }) {
   const status = useFormStatus();
-  return (
+  const button = (
     <button
       type="submit"
       name={name}
@@ -18,6 +20,17 @@ export function SubmitButton({ children, pending, className, confirm, name, valu
     >
       {status.pending ? (pending ?? 'Saving…') : children}
     </button>
+  );
+  if (!cancel) return button;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {button}
+      {typeof cancel === 'string' ? (
+        <a href={cancel} className="btn btn-ghost">Cancel</a>
+      ) : (
+        <button type="reset" className="btn btn-ghost" disabled={status.pending}>Cancel</button>
+      )}
+    </span>
   );
 }
 

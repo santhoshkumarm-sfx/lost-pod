@@ -75,7 +75,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Sear
             <Field label="TAT in days" hint="Empty = default from Settings"><input name="sla_days" type="number" min={1} className="input" /></Field>
             <Field label="Also written as" hint="Comma separated, e.g. Swift Premium, Swift Prime"><input name="aliases" className="input" /></Field>
             <Field label="Email domains" hint="e.g. goswift.in" className="md:col-span-2"><input name="email_domains" className="input" /></Field>
-            <div><SubmitButton>Add client</SubmitButton></div>
+            <div><SubmitButton cancel>Add client</SubmitButton></div>
           </form>
         </Panel>
       )}

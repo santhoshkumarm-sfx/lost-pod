@@ -91,7 +91,7 @@ export default async function LostRequestPage({ params, searchParams }: { params
             </label>
             <SubmitButton name="decision" value="approved" className="btn btn-danger" pending="Accepting…" confirm="Accept the loss for the chosen AWBs? The client is told.">Accept loss</SubmitButton>
             <SubmitButton name="decision" value="rejected" className="btn" pending="Rejecting…">Reject</SubmitButton>
-            <SubmitButton name="decision" value="sent_back" className="btn" pending="Sending back…">Send back</SubmitButton>
+            <SubmitButton cancel name="decision" value="sent_back" className="btn" pending="Sending back…">Send back</SubmitButton>
           </div>
         ) : r.pending > 0 ? (
           <p className="border-b border-line px-4 py-2 text-xs text-ink-soft">You can view this request but not decide it. A Super Admin grants approval rights under Users.</p>
