@@ -258,16 +258,16 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
     k === 'pending' ? cases({ category: 'pending_pod' }) : k === 'critical' ? cases({ category: 'critical' })
       : k === 'shared' ? cases({ category: 'pod_done' }) : k === 'lost_pending' ? `/lost-approval${f.client ? `?client=${f.client}` : ''}`
         : cases({ category: 'lost' });
-  const byValue = sp.measure === 'value';
+  const byValue = sp.measure !== 'count';   // default: ₹ value with the AWB count under it
   const fmt = byValue ? fmtInrShort : fmtNum;
   const ageCols = s.pending_age.map((b) => ({ label: b.max === b.min ? `${b.label} d` : b.label }));
   const hotFrom = s.pending_age.findIndex((b) => b.min > s.critical_days);
   const clientKey = (id: string | null) => id ?? 'none';
-  const measureHref = (m: 'count' | 'value') => `/dashboard${filtersToQuery(f as never, { measure: m === 'value' ? 'value' : null, page: null, size: null, sort: null, dir: null, category: null })}`;
+  const measureHref = (m: 'count' | 'value') => `/dashboard${filtersToQuery(f as never, { measure: m === 'count' ? 'count' : null, page: null, size: null, sort: null, dir: null, category: null })}`;
   const measureToggle = (
     <div className="flex overflow-hidden rounded border border-line text-xs">
-      <Link href={measureHref('count')} className={`px-3 py-1.5 no-underline ${byValue ? 'text-ink-soft' : 'bg-night font-semibold text-white'}`}>AWBs</Link>
-      <Link href={measureHref('value')} className={`px-3 py-1.5 no-underline ${byValue ? 'bg-night font-semibold text-white' : 'text-ink-soft'}`}>Product value ₹</Link>
+      <Link href={measureHref('value')} className={`px-3 py-1.5 no-underline ${byValue ? 'bg-night font-semibold text-white' : 'text-ink-soft'}`}>₹ value + AWBs</Link>
+      <Link href={measureHref('count')} className={`px-3 py-1.5 no-underline ${byValue ? 'text-ink-soft' : 'bg-night font-semibold text-white'}`}>AWBs only</Link>
     </div>
   );
   const agentHref = (a: { agent_id: string | null; agent: string }, extra: Record<string, string | null> = {}) =>
@@ -294,7 +294,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         clearHref="/dashboard"
         fields={['q', 'client', 'agent']}
         more={['hub', 'poc', 'source', 'dates', 'value']}
-        hidden={byValue ? { measure: 'value' } : {}}
+        hidden={byValue ? {} : { measure: 'count' }}
         clients={clients}
         agents={agents}
         criticalDays={s.critical_days}
@@ -308,7 +308,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       <PodTiles s={s} href={tileHref} />
 
       <PivotTable
-        title={`Pending POD — by age${byValue ? ' (product value)' : ''}`}
+        title={`Pending POD — by age${byValue ? ' — ₹ product value, AWBs below' : ''}`}
         note={`Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.${valueNote}`}
         actions={measureToggle}
         rowHeader="Client"
@@ -318,14 +318,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
           label: c.client,
           href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
-          cells: (byValue ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
+          cells: (byValue ? c.age_value : c.age).map((v, i) => ({ value: Number(v), sub: byValue ? c.age[i] : undefined, href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
         }))}
         columnHref={(i) => rangeHref(s.pending_age[i])}
         totalHref={cases({ category: 'pending_pod' })}
       />
 
       <PivotTable
-        title={`All cases — client × status${byValue ? ' (product value)' : ''}`}
+        title={`All cases — client × status${byValue ? ' — ₹ product value, AWBs below' : ''}`}
         rowHeader="Client"
         columns={statusCols}
         format={fmt}
@@ -337,6 +337,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
             ? [c.pending_value, c.critical_value, c.pod_shared_value, c.lost_pending_value, c.lost_value]
             : [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost]).map((v, i) => ({
             value: Number(v),
+            sub: byValue ? [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost][i] : undefined,
             href: statusCats[i] === 'lost_pending' ? `/lost-approval?client=${clientKey(c.client_id)}` : cases({ client: clientKey(c.client_id), category: statusCats[i] }),
           })),
         }))}
@@ -348,7 +349,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
       {user.role !== 'client_poc' && (
         <PivotTable
-          title={`Pending POD — agent × age${byValue ? ' (product value)' : ''}`}
+          title={`Pending POD — agent × age${byValue ? ' — ₹ product value, AWBs below' : ''}`}
           note="Agent = the person assigned in the dashboard, or the agent name in the tracker."
           actions={measureToggle}
           rowHeader="Agent"
@@ -358,7 +359,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
           rows={s.by_agent.map((a) => ({
             label: a.agent,
             href: cases({ ...agentHref(a), category: 'pending_pod' }),
-            cells: (byValue ? a.age_value : a.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], agentHref(a)) })),
+            cells: (byValue ? a.age_value : a.age).map((v, i) => ({ value: Number(v), sub: byValue ? a.age[i] : undefined, href: rangeHref(s.pending_age[i], agentHref(a)) })),
           }))}
           columnHref={(i) => rangeHref(s.pending_age[i])}
           totalHref={cases({ category: 'pending_pod' })}
