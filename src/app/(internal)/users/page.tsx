@@ -5,7 +5,7 @@ import { param, type SearchParams } from '@/lib/flash';
 import { fmtDate } from '@/lib/format';
 import { getClients } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
-import { changeRole, createUser, removeUser, resetPassword, restoreUser, setActive, setApprover } from './actions';
+import { changeRole, createUser, removeUser, resetPassword, restoreUser, setActive, setAlignedClients, setApprover } from './actions';
 
 export const metadata = { title: 'Users' };
 
@@ -16,12 +16,15 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
   const showRemoved = param(sp, 'removed') === '1';
   let usersQ = supabase.from('profiles').select('*').order('role').order('full_name');
   usersQ = showRemoved ? usersQ.not('removed_at', 'is', null) : usersQ.is('removed_at', null);
-  const [usersRes, clients, links, approversRes] = await Promise.all([
+  const [usersRes, clients, links, approversRes, alignedRes] = await Promise.all([
     usersQ,
     getClients(supabase),
     supabase.from('client_pocs').select('user_id, clients(name)').not('user_id', 'is', null),
     supabase.from('lost_approvers').select('user_id, client_id'),
+    supabase.from('agent_clients').select('user_id, client_id'),
   ]);
+  const aligned = (alignedRes.data ?? []) as { user_id: string; client_id: string }[];
+  const alignedOf = (uid: string) => aligned.filter((a) => a.user_id === uid).map((a) => a.client_id);
   const isSuper = me.role === 'super_admin';
   const approvers = (approversRes.data ?? []) as { user_id: string; client_id: string | null }[];
   const rightsOf = (uid: string) => approvers.filter((a) => a.user_id === uid);
@@ -53,7 +56,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
               <th>Name</th>
               <th>Email</th>
               <th>Role</th>
-              <th>Client</th>
+              <th>Client / aligned clients</th>
               <th>Access</th>
               <th title="Who may approve (accept) Lost requests">Can approve Lost</th>
               <th>Added</th>
@@ -78,7 +81,27 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
                       </form>
                     )}
                   </td>
-                  <td>{u.role === 'client_poc' ? clientOf(u.id) || <span className="text-age-3">not linked</span> : ''}</td>
+                  <td className="max-w-[240px]">
+                    {u.role === 'client_poc' ? clientOf(u.id) || <span className="text-age-3">not linked</span> : u.role === 'internal_team' ? (
+                      <details>
+                        <summary className="cursor-pointer">
+                          {alignedOf(u.id).length ? alignedOf(u.id).map(clientName).join(', ') : <span className="text-age-3">no clients aligned</span>}
+                        </summary>
+                        <form action={setAlignedClients} className="mt-2 space-y-2 rounded border border-line p-2">
+                          <input type="hidden" name="id" value={u.id} />
+                          <p className="text-xs text-ink-soft">Their dashboard shows only these clients.</p>
+                          <div className="max-h-40 overflow-y-auto">
+                            {clients.map((c) => (
+                              <label key={c.id} className="flex items-center gap-1.5 text-xs">
+                                <input type="checkbox" name="aligned_clients" value={c.id} defaultChecked={alignedOf(u.id).includes(c.id)} /> {c.name}
+                              </label>
+                            ))}
+                          </div>
+                          <SubmitButton className="btn btn-sm" cancel>Save</SubmitButton>
+                        </form>
+                      </details>
+                    ) : ''}
+                  </td>
                   <td>{u.is_active ? 'Active' : 'Disabled'}</td>
                   <td className="max-w-[260px]">
                     {isSuper && (u.role === 'admin' || u.role === 'internal_team') ? (

@@ -240,13 +240,23 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   if (isSuper && sp.view === 'detailed') return <DetailedDashboard sp={sp} />;
   const f = parseCaseFilters(sp, { category: 'all' });
   const supabase = await createClient();
-  const p = toStats(f, { category: 'all' });
-  const [statsRes, mineRes, clients, agents] = await Promise.all([
+  const internal = user.role === 'internal_team';
+  // Internal team: only their aligned clients (set by an Admin on Users), or their own cases when none are aligned.
+  const aligned = internal
+    ? ((await supabase.from('agent_clients').select('client_id').eq('user_id', user.id)).data ?? []).map((r) => r.client_id as string)
+    : [];
+  const scope: Record<string, unknown> = !internal ? {} : aligned.length ? { clients: aligned } : { agent: user.id };
+  const p = { ...toStats(f, { category: 'all' }), ...scope };
+  const [statsRes, mineRes, allClients, agents] = await Promise.all([
     supabase.rpc('pod_stats', { p }),
-    user.role === 'internal_team' ? supabase.rpc('pod_stats', { p: { ...p, agent: user.id } }) : Promise.resolve({ data: null }),
+    internal ? supabase.rpc('pod_stats', { p: { ...p, agent: user.id } }) : Promise.resolve({ data: null }),
     getClients(supabase),
     getAgents(supabase),
   ]);
+  const clients = internal && aligned.length ? allClients.filter((c) => aligned.includes(c.id)) : allClients;
+  const scopeNote = !internal ? '' : aligned.length
+    ? ` Showing your clients: ${clients.map((c) => c.name).join(', ')}.`
+    : ' Showing the cases assigned to you (ask an Admin to align your clients).';
   if (statsRes.error) throw new Error(statsRes.error.message);
   const s = statsRes.data as PodStats;
   const mine = mineRes.data as PodStats | null;
@@ -273,7 +283,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
     <>
       <PageHeader
         title="Dashboard"
-        sub={`Every shipment ends with a POD shared or a loss accepted. Pending POD over ${s.critical_days} days is critical. Click any number to open those cases.`}
+        sub={`Every shipment ends with a POD shared or a loss accepted. Pending POD over ${s.critical_days} days is critical. Click any number to open those cases.${scopeNote}`}
         actions={<Link href={cases({ category: 'critical' })} className="btn btn-danger">Open critical list ({fmtNum(s.critical)})</Link>}
       />
       <Flash sp={sp} />
@@ -299,12 +309,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       {(['count', 'value'] as const).map((m) => (
         <PivotTable
           key={`age-${m}`}
-          title={m === 'count' ? 'Pending POD by age — AWBs' : 'Pending POD by age — Product value (₹)'}
+          title="Pending POD by age"
           note={m === 'count' ? `Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.` : `Same shipments, by product value.${valueNote}`}
           rowHeader="Client"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
           rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
             label: c.client,
             href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
@@ -318,12 +329,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       {(['value', 'count'] as const).map((m) => (
         <PivotTable
           key={`hub-${m}`}
-          title={m === 'value' ? 'Top 20 hubs — Pending POD by Product value (₹)' : 'Top 20 hubs — Pending POD AWBs (same hubs)'}
+          title={m === 'value' ? 'Top 20 hubs — pending POD by product value' : 'Top 20 hubs — pending POD (same hubs)'}
           note={m === 'value' ? 'Hubs with the highest value still waiting for a POD (cases without a hub are left out).' : undefined}
           rowHeader="Hub"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
           rows={s.by_hub.map((h) => ({
             label: h.hub,
             href: cases({ hub: h.hub, category: 'pending_pod' }),
@@ -335,10 +347,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       {(['count', 'value'] as const).map((m) => (
         <PivotTable
           key={`status-${m}`}
-          title={m === 'count' ? 'Pendency and loss — client wise — AWBs' : 'Pendency and loss — client wise — Product value (₹)'}
+          title="Pendency and loss — client wise"
           rowHeader="Client"
           columns={statusCols}
           format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
           rows={s.by_client.filter((c) => c.pending + c.lost_pending + c.lost > 0).map((c) => ({
             label: c.client,
             href: cases({ client: clientKey(c.client_id), category: 'all' }),
@@ -357,11 +370,12 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       ))}
 
       <PivotTable
-        title="Top 15 hubs — Loss accepted by Product value (₹)"
+        title="Top 15 hubs — loss accepted by product value"
         note="Hubs with the highest accepted loss; loss still waiting for approval next to it."
         rowHeader="Hub"
         columns={[{ label: 'Loss accepted AWBs' }, { label: 'Loss accepted ₹' }, { label: 'Loss requested AWBs' }, { label: 'Loss requested ₹' }]}
         formats={[fmtNum, fmtRs, fmtNum, fmtRs]}
+        variant="mixed"
         noTotalCol
         rows={s.hub_loss.map((h) => ({
           label: h.hub,
@@ -375,12 +389,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       {(['count', 'value'] as const).map((m) => (
         <PivotTable
           key={`agent-${m}`}
-          title={m === 'count' ? 'Pending POD — agent × age — AWBs' : 'Pending POD — agent × age — Product value (₹)'}
+          title="Pending POD — agent × age"
           note={m === 'count' ? 'Agent = the person assigned in the dashboard, or the agent name in the tracker.' : undefined}
           rowHeader="Agent"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
           rows={s.by_agent.map((a) => ({
             label: a.agent,
             href: cases({ ...agentHref(a), category: 'pending_pod' }),

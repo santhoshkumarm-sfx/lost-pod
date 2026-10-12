@@ -36,16 +36,20 @@ export function mailTable(t: MailTable): string {
   // Largest to smallest (by Total), for AWB and for value tables alike.
   if (!t.noTotalCol) t = { ...t, rows: [...t.rows].sort((a, b) => total(b.cells) - total(a.cells)) };
   const first = (c: number[]) => c.slice(0, t.firstTotal?.upTo ?? 0).reduce((s, v) => s + (Number(v) || 0), 0);
-  const th = (x: string, hot = false) => `<th bgcolor="${HEAD}" align="center" style="white-space:nowrap${hot ? `;color:${HOT}` : ''}">${esc(x)}</th>`;
+  // Even spacing: label columns 150px, every number column (totals included) the same width.
+  const value = /Product value|₹/.test(t.title);
+  const headBg = value ? '#E3EEF0' : HEAD;
+  const numW = t.columns.length > 8 ? 64 : 110;
+  const th = (x: string, hot = false, w = numW) => `<th bgcolor="${headBg}" align="center" width="${w}" style="width:${w}px${hot ? `;color:${HOT}` : ''}">${esc(x)}</th>`;
   const td = (v: number, bold = false) => `<td align="center">${bold ? `<b>${n0(v)}</b>` : n0(v)}</td>`;
-  const head = `<tr>${t.labels.map((l) => th(l)).join('')}${t.columns.map((c, i) => th(c, t.hotFrom !== undefined && i >= t.hotFrom)).join('')}${t.firstTotal ? th(t.firstTotal.label) : ''}${t.noTotalCol ? '' : th('Total')}</tr>`;
+  const head = `<tr>${t.labels.map((l) => th(l, false, 150)).join('')}${t.columns.map((c, i) => th(c, t.hotFrom !== undefined && i >= t.hotFrom)).join('')}${t.firstTotal ? th(t.firstTotal.label) : ''}${t.noTotalCol ? '' : th('Total')}</tr>`;
   const body = t.rows.map((r) => `<tr>${r.labels.map((l, i) => `<td${i ? ' align="center"' : ''}><b>${esc(l ?? '—')}</b></td>`).join('')}${r.cells.map((v) => td(v)).join('')}${t.firstTotal ? td(first(r.cells)) : ''}${t.noTotalCol ? '' : td(total(r.cells), true)}</tr>`).join('');
   const cols = t.columns.map((_, i) => t.rows.reduce((s, r) => s + (Number(r.cells[i]) || 0), 0));
   const foot = t.totalRow === false || !t.rows.length ? '' :
     `<tr bgcolor="${HEAD}"><td colspan="${t.labels.length}"><b>Total</b></td>${cols.map((v) => td(v, true)).join('')}${t.firstTotal ? td(first(cols), true) : ''}${t.noTotalCol ? '' : td(total(cols), true)}</tr>`;
   const empty = t.rows.length ? '' : `<tr><td colspan="${t.labels.length + t.columns.length + 2}" align="center">Nothing to show.</td></tr>`;
   return `<p style="margin:18px 0 6px"><b>${esc(t.title)}</b></p>
-<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;border-color:${BORDER};font-size:12px;font-family:Arial,sans-serif">${head}${body}${empty}${foot}</table>`;
+<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;border-color:${BORDER};font-size:12px;font-family:Arial,sans-serif">${head}${body}${empty}${foot}</table>`;
 }
 
 export interface Yesterday { day: string; new: { count: number; value: number }; pod_shared: { count: number; value: number }; lost_requested: { count: number; value: number }; lost_accepted: { count: number; value: number } }

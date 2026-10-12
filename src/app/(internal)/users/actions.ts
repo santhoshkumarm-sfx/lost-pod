@@ -147,3 +147,17 @@ export async function setApprover(fd: FormData) {
     return `${t.full_name ?? t.email}: ${msg}`;
   });
 }
+
+/** Admin: the clients an internal team member works on (their dashboard shows only these). */
+export async function setAlignedClients(fd: FormData) {
+  const actor = await requireAdmin();
+  await done(async () => {
+    const t = await target(str(fd, 'id'));
+    if (t.role !== 'internal_team') throw new Error('Aligned clients are for internal team members.');
+    const ids = [...new Set(fd.getAll('aligned_clients').map(String).filter(Boolean))];
+    const sb = await createClient();
+    must(await sb.from('agent_clients').delete().eq('user_id', t.id).select('user_id'));
+    if (ids.length) must(await sb.from('agent_clients').insert(ids.map((c) => ({ user_id: t.id, client_id: c, created_by: actor.id }))).select('user_id'));
+    return `${t.full_name ?? t.email}: ${ids.length ? `${ids.length} client(s) aligned` : 'no clients aligned (sees only cases assigned to them)'}.`;
+  });
+}

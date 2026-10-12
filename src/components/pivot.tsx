@@ -8,7 +8,7 @@ export interface PivotRow { label: string; href?: string; cells: { value: number
  * Excel-style pivot table: row labels down the side, columns across, Grand Total row and column.
  * Zeros are left blank, like a pivot table; every number links to the matching list of cases.
  */
-export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, actions, noTotalCol, formats, keepOrder }: {
+export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, noTotalCol, formats, keepOrder, variant = 'count' }: {
   title: string;
   rowHeader: string;
   columns: PivotColumn[];
@@ -22,7 +22,8 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
   format?: (v: number) => string;
   /** Columns from this index on get the "critical" header colour. */
   hotFrom?: number;
-  actions?: React.ReactNode;
+  /** "value" tables (₹) get their own header colour so they are not mixed up with AWB tables. */
+  variant?: 'count' | 'value' | 'mixed';
   /** Leave out the Grand Total column (when the columns are different things). */
   noTotalCol?: boolean;
   /** Per-column number formats (overrides `format`). */
@@ -39,30 +40,34 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
     const f = (i !== undefined && formats?.[i]) || format;
     return v ? (href ? <Link href={href} className={`text-inherit no-underline hover:underline ${bold ? 'font-semibold' : ''}`}>{f(v)}</Link> : f(v)) : '';
   };
-  const th = 'border border-[#2A4066] bg-[#14223A] px-1 py-2 text-xs font-semibold uppercase tracking-wide text-white';
-  const td = `border border-[#DCDFD8] px-1 py-2 text-center tabular-nums ${columns.length > 10 ? 'text-[13px]' : 'text-[15px]'}`;
-  const foot = `border border-[#B9C6DA] border-t-2 border-t-[#14223A] bg-[#E6ECF5] px-1 py-2 font-bold tabular-nums ${columns.length > 10 ? 'text-[13px]' : 'text-[15px]'}`;
+  const value = variant === 'value';
+  const headBg = value ? 'bg-[#1D4250]' : 'bg-[#14223A]';
+  const size = columns.length > 10 ? 'text-[13px]' : 'text-sm';
+  const th = `border border-white/15 ${headBg} px-1 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-white`;
+  const td = `border border-[#E3E6E0] px-1 py-2 text-center tabular-nums text-ink ${size}`;
+  const foot = `border border-[#C9D3E1] border-t-2 ${value ? 'border-t-[#1D4250] bg-[#E3EEF0]' : 'border-t-[#14223A] bg-[#E6ECF5]'} px-1 py-2 font-bold tabular-nums ${size}`;
   return (
     <section className="panel mb-5 overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-line px-4 py-3">
-        <div>
-          <h2 className="text-base font-semibold text-ink">{title}</h2>
-          {note && <p className="mt-0.5 text-xs text-ink-soft">{note}</p>}
-        </div>
-        {actions}
+      <div className={`border-b border-l-4 border-b-line px-4 py-3 ${value ? 'border-l-[#1D4250]' : 'border-l-[#14223A]'}`}>
+        <h2 className="text-[15px] font-semibold text-ink">
+          {title}
+          {variant !== 'mixed' && <span className={`ml-2 rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide ${value ? 'bg-[#E3EEF0] text-[#1D4250]' : 'bg-[#E6ECF5] text-[#14223A]'}`}>{value ? '₹ value' : 'AWBs'}</span>}
+        </h2>
+        {note && <p className="mt-0.5 text-xs text-ink-soft">{note}</p>}
       </div>
       <div className="overflow-x-auto p-3">
         <table className="w-full table-fixed border-collapse bg-white">
           <colgroup>
             <col className="w-[180px]" />
+            {/* every number column, Grand Total included, gets the same width */}
             {columns.map((c) => <col key={c.label} />)}
-            {!noTotalCol && <col className="w-[110px]" />}
+            {!noTotalCol && <col />}
           </colgroup>
           <thead>
             <tr>
               <th className={`${th} px-3 text-left`}>{rowHeader}</th>
-              {columns.map((c, i) => <th key={c.label} className={`${th} text-center ${hotFrom !== undefined && i >= hotFrom ? 'bg-[#7E2A26]' : ''}`}>{c.label}</th>)}
-              {!noTotalCol && <th className={`${th} bg-[#2A4066] text-center`}>Grand Total</th>}
+              {columns.map((c, i) => <th key={c.label} className={`${th} text-center ${hotFrom !== undefined && i >= hotFrom ? '!bg-[#8B2E2A]' : ''}`}>{c.label}</th>)}
+              {!noTotalCol && <th className={`${th} ${value ? '!bg-[#2C5A69]' : '!bg-[#2A4066]'} text-center`}>Total</th>}
             </tr>
           </thead>
           <tbody>
@@ -79,7 +84,7 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
               );
             })}
             {!rows.length && (
-              <tr><td colSpan={columns.length + 2} className="border border-[#DCDFD8] px-3 py-4 text-center text-ink-soft">No data for these filters.</td></tr>
+              <tr><td colSpan={columns.length + (noTotalCol ? 1 : 2)} className="border border-[#DCDFD8] px-3 py-4 text-center text-ink-soft">No data for these filters.</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (

@@ -831,7 +831,9 @@ end $$;
 create or replace function public.cases_filtered(p jsonb default '{}'::jsonb)
 returns setof public.v_cases language sql stable security invoker set search_path = public as $$
   select v.* from public.v_cases v
-  where (nullif(p ->> 'client', '') is null
+  where (jsonb_typeof(p -> 'clients') is distinct from 'array'
+         or v.client_id::text in (select jsonb_array_elements_text(p -> 'clients')))
+    and (nullif(p ->> 'client', '') is null
          or (p ->> 'client' = 'none' and v.client_id is null)
          or v.client_id::text = p ->> 'client')
     and (nullif(p ->> 'source', '') is null or v.source_type::text = p ->> 'source')
@@ -1796,3 +1798,20 @@ begin
 end $$;
 revoke execute on function public.auto_lost_requests() from public, anon, authenticated;
 grant execute on function public.auto_lost_requests() to service_role;
+
+-- ######## Clients aligned to an internal team member (their dashboard shows only these) ########
+create table if not exists public.agent_clients (
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  client_id  uuid not null references public.clients (id) on delete cascade,
+  created_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, client_id)
+);
+alter table public.agent_clients enable row level security;
+drop policy if exists agent_clients_read on public.agent_clients;
+create policy agent_clients_read on public.agent_clients for select to authenticated using ((select public.is_internal()));
+drop policy if exists agent_clients_write on public.agent_clients;
+create policy agent_clients_write on public.agent_clients for all to authenticated using ((select public.is_admin())) with check ((select public.is_admin()));
+drop trigger if exists audit_agent_clients on public.agent_clients;
+create trigger audit_agent_clients after insert or update or delete on public.agent_clients
+  for each row execute function public.audit_row();
