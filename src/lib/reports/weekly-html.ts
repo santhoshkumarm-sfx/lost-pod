@@ -24,7 +24,7 @@ const NAVY = '#14223A';
 const LINE = '#DCDFD8';
 const INK = '#1B2330';
 const SOFT = '#4A5566';
-const BODY_ROWS = 100;
+const BODY_ROWS = 50;   // the rest is in the attachment; Gmail rejects large bodies
 
 const th = (t: string, align = 'left') =>
   `<th style="background:${NAVY};color:#fff;font-weight:600;font-size:12px;padding:6px 8px;text-align:${align};border:1px solid ${NAVY};white-space:nowrap">${esc(t)}</th>`;

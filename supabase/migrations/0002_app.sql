@@ -878,6 +878,7 @@ returns jsonb language sql stable security invoker set search_path = public as $
     select client_id, coalesce(client_display_name, 'No client') as client, assigned_agent,
            coalesce(agent_display_name, 'Unassigned') as agent, team_status, status_category, pod_status, aging_days, escalation_date,
            coalesce(final_value, 0) as value, final_value is null as no_value,
+           coalesce(nullif(trim(hub), ''), nullif(trim(location), ''), 'No hub') as hub_name, location as city,
            (status_category = 'open' and team_status <> 'pod_shared' and pod_status <> 'shared') as pending
     from public.cases_filtered(p - 'category' - 'status' - 'agemin' - 'agemax' - 'aging')
   ),
@@ -893,7 +894,8 @@ returns jsonb language sql stable security invoker set search_path = public as $
     select base.*, b.n from base join b on base.aging_days between b.lo and coalesce(b.hi, 100000) where base.pending
   ),
   pc as (select client_id, n, count(*) as cnt, sum(value) as val from pb group by client_id, n),
-  pa as (select assigned_agent, agent, n, count(*) as cnt, sum(value) as val from pb group by assigned_agent, agent, n)
+  pa as (select assigned_agent, agent, n, count(*) as cnt, sum(value) as val from pb group by assigned_agent, agent, n),
+  ph as (select hub_name, n, count(*) as cnt, sum(value) as val from pb group by hub_name, n)
   select jsonb_build_object(
     'critical_days', (select d from k),
     'total', (select count(*) from base),
@@ -944,7 +946,25 @@ returns jsonb language sql stable security invoker set search_path = public as $
                   and x.assigned_agent is not distinct from pb.assigned_agent and x.agent = pb.agent) as age,
                (select jsonb_agg(coalesce(x.val, 0) order by b.n) from b left join pa x on x.n = b.n
                   and x.assigned_agent is not distinct from pb.assigned_agent and x.agent = pb.agent) as age_value
-        from pb group by pb.assigned_agent, pb.agent) g), '[]'::jsonb)
+        from pb group by pb.assigned_agent, pb.agent) g), '[]'::jsonb),
+    -- Top 20 hubs by pending-POD product value (then AWBs).
+    'by_hub', coalesce((select jsonb_agg(h order by h.pending_value desc, h.pending desc, h.hub) from (
+        select pb.hub_name as hub, max(pb.city) as city, count(*) as pending, coalesce(sum(value), 0) as pending_value,
+               count(*) filter (where aging_days > (select d from k)) as critical,
+               (select jsonb_agg(coalesce(x.cnt, 0) order by b.n) from b left join ph x on x.n = b.n and x.hub_name = pb.hub_name) as age,
+               (select jsonb_agg(coalesce(x.val, 0) order by b.n) from b left join ph x on x.n = b.n and x.hub_name = pb.hub_name) as age_value
+        from pb where pb.hub_name <> 'No hub' group by pb.hub_name order by coalesce(sum(value), 0) desc, count(*) desc limit 20) h), '[]'::jsonb),
+    -- Top 15 hubs by accepted loss (product value), with loss requested next to it.
+    'hub_loss', coalesce((select jsonb_agg(h order by h.lost_value desc, h.lost desc, h.hub) from (
+        select hub_name as hub, max(city) as city,
+               count(*) filter (where status_category = 'lost') as lost,
+               coalesce(sum(value) filter (where status_category = 'lost'), 0) as lost_value,
+               count(*) filter (where status_category = 'lost_pending') as lost_pending,
+               coalesce(sum(value) filter (where status_category = 'lost_pending'), 0) as lost_pending_value
+        from base where status_category in ('lost', 'lost_pending') and hub_name <> 'No hub' group by hub_name
+        order by coalesce(sum(value) filter (where status_category = 'lost'), 0) desc,
+                 count(*) filter (where status_category = 'lost') desc,
+                 coalesce(sum(value) filter (where status_category = 'lost_pending'), 0) desc limit 15) h), '[]'::jsonb)
   )
 $$;
 grant execute on function public.pod_stats(jsonb) to authenticated, service_role;
@@ -1706,3 +1726,25 @@ begin
 end $$;
 revoke execute on function public.resolve_pod_complaint(uuid, text, text) from public, anon;
 grant execute on function public.resolve_pod_complaint(uuid, text, text) to authenticated;
+
+-- ######## Daily report: what happened yesterday (IST), counts and product value ########
+create or replace function public.report_yesterday()
+returns jsonb language sql stable security invoker set search_path = public as $$
+  with d as (select public.app_today() - 1 as day),
+  v as (select id, coalesce(final_value, 0) as value from public.v_cases),
+  ist as (select 'Asia/Kolkata'::text as tz),
+  newc as (select v.value from public.v_cases c join v on v.id = c.id, d where c.escalation_date = d.day),
+  shared as (
+    select distinct u.case_id from public.case_updates u, d, ist
+    where u.field = 'team_status' and u.new_value = 'pod_shared' and (u.created_at at time zone ist.tz)::date = d.day),
+  req as (select distinct la.case_id from public.lost_approvals la, d, ist where (la.requested_at at time zone ist.tz)::date = d.day),
+  acc as (select distinct la.case_id from public.lost_approvals la, d, ist
+          where la.status = 'approved' and (la.decided_at at time zone ist.tz)::date = d.day)
+  select jsonb_build_object(
+    'day', (select day from d),
+    'new', jsonb_build_object('count', (select count(*) from newc), 'value', (select coalesce(sum(value), 0) from newc)),
+    'pod_shared', jsonb_build_object('count', (select count(*) from shared), 'value', (select coalesce(sum(v.value), 0) from shared join v on v.id = shared.case_id)),
+    'lost_requested', jsonb_build_object('count', (select count(*) from req), 'value', (select coalesce(sum(v.value), 0) from req join v on v.id = req.case_id)),
+    'lost_accepted', jsonb_build_object('count', (select count(*) from acc), 'value', (select coalesce(sum(v.value), 0) from acc join v on v.id = acc.case_id)))
+$$;
+grant execute on function public.report_yesterday() to authenticated, service_role;

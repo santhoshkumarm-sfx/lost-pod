@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
-import { renderDailyReportHtml } from '@/lib/reports/html';
+import { mailTable, statsEmailHtml } from '@/lib/reports/pivot-html';
 import type { CaseExportRow, DailyReportData } from '@/lib/reports/types';
 import { buildCasesCsv, buildReportWorkbook, PORTAL_SHEET_COLUMNS } from '@/lib/reports/xlsx';
 
@@ -19,25 +19,37 @@ const data: DailyReportData = {
   pending_lost_total: 0,
 };
 
-describe('daily report email', () => {
-  const html = renderDailyReportHtml(data, { agingOrder: 'asc', lostDays: 30, attachmentName: 'lost-pod-report-2026-10-03.xlsx', siteUrl: 'https://x.test' });
-  it('puts the three Top 10 tables before the attachment note', () => {
-    const at = html.indexOf('Attached:');
-    for (const t of ['Top 10 aging', 'Top 10 — highest product value', 'Top 10 — highest AWB count']) {
-      expect(html.indexOf(t)).toBeGreaterThan(0);
-      expect(html.indexOf(t)).toBeLessThan(at);
-    }
+describe('report email tables', () => {
+  const stats = {
+    critical_days: 7, total: 3, pending: 2, critical: 1, pod_shared: 1, closed: 0, lost_pending: 0, lost: 0, new_today: 0,
+    value: { total: 1500, pending: 1200, critical: 200, pod_shared: 300, lost_pending: 0, lost: 0, pending_no_value: 0 },
+    pending_age: [{ label: '0', min: 0, max: 0, count: 1, value: 1000 }, { label: '8–10', min: 8, max: 10, count: 1, value: 200 }],
+    by_client: [{ client_id: 'c', client: 'A <b>', total: 3, age: [1, 1], age_value: [1000, 200], pending: 2, critical: 1, pod_shared: 1, lost_pending: 0, lost: 0, oldest: 9,
+      total_value: 1500, pending_value: 1200, critical_value: 200, pod_shared_value: 300, lost_pending_value: 0, lost_value: 0 }],
+    by_hub: [{ hub: 'DEL_X', city: 'Delhi', pending: 2, pending_value: 1200, critical: 1, age: [1, 1], age_value: [1000, 200] }],
+    hub_loss: [],
+    by_agent: [],
+  };
+  const html = statsEmailHtml(stats, null, { intro: 'x', footer: 'y' });
+  it('has separate AWB and product value tables, numbered, with full numbers', () => {
+    expect(html).toContain('1. Pending POD client wise — AWBs');
+    expect(html).toContain('2. Pending POD client wise — Product value');
+    expect(html).toContain('Top 20 hubs — Pending POD by Product value');
+    expect(html).toContain('>1,000<');
+    expect(html).toContain('Total 0–7 days');
+    expect(html).not.toContain('A <b>');
   });
-  it('orders aging columns 1 → 10+ or the reverse', () => {
-    const cols = (h: string) => h.slice(h.indexOf('Top 10 aging'), h.indexOf('highest product value')).match(/>(10\+|[1-9]|10)</g)!.slice(0, 11).join('');
-    expect(cols(html)).toBe('>1<>2<>3<>4<>5<>6<>7<>8<>9<>10<>10+<');
-    const desc = renderDailyReportHtml(data, { agingOrder: 'desc', lostDays: 30, attachmentName: null, siteUrl: 'https://x.test' });
-    expect(cols(desc)).toBe('>10+<>10<>9<>8<>7<>6<>5<>4<>3<>2<>1<');
+  it('keeps Critical out of the Total', () => {
+    const t = mailTable({ title: 't', labels: ['r'], columns: ['a', 'b'], rows: [{ labels: ['x'], cells: [2, 1] }], notInTotal: [1] });
+    expect(t).toContain('<td align="center"><b>2</b></td></tr>');
   });
-  it('shows Lost aging from escalation to approval and escapes text', () => {
-    expect(html).toContain('R2178493750VEO');
-    expect(html).toContain('>19<');
-    expect(html).not.toContain('<b>x</b>');
+  it('stays small with many clients', () => {
+    const wide = { ...stats, pending_age: Array.from({ length: 14 }, (_, i) => ({ label: String(i), min: i, max: i, count: 1, value: 123456 })) };
+    const row = { ...stats.by_client[0], age: Array(14).fill(12), age_value: Array(14).fill(123456) };
+    const many = { ...wide, by_client: Array.from({ length: 40 }, (_, i) => ({ ...row, client: `Client ${i}` })),
+      by_hub: Array.from({ length: 20 }, (_, i) => ({ ...stats.by_hub[0], hub: `H${i}`, age: Array(14).fill(3), age_value: Array(14).fill(999) })),
+      by_agent: Array.from({ length: 15 }, (_, i) => ({ agent_id: null, agent: `Agent ${i}`, pending: 1, critical: 1, oldest: 1, age: Array(14).fill(3), age_value: Array(14).fill(999), pending_value: 1 })) };
+    expect(statsEmailHtml(many, null, { intro: '', footer: '', agents: true }).length).toBeLessThan(120_000);
   });
 });
 

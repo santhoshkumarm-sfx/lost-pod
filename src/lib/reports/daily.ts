@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { publicEnv } from '../env';
 import { sendMail } from '../google';
 import { fmtDate } from '../format';
-import { renderDailyReportHtml } from './html';
+import type { PodStats } from '../cases/filters';
+import { statsEmailHtml, type Yesterday } from './pivot-html';
 import { CASE_EXPORT_COLUMNS, type CaseExportRow, type DailyReportData } from './types';
 import { buildReportWorkbook } from './xlsx';
 
@@ -43,20 +44,31 @@ export interface BuiltReport {
   xlsx: Buffer | null;
 }
 
-/** Everything is computed from the consolidated database at the moment the report is generated. */
+/**
+ * Everything is computed from the consolidated database when the report is built. The body has the dashboard
+ * tables (AWBs and ₹ value) plus what happened yesterday; every case is in the attached Excel.
+ */
 export async function buildDailyReport(sb: SupabaseClient, opts: { withAttachment: boolean }): Promise<BuiltReport> {
   const settings = await reportSettings(sb);
-  const { data, error } = await sb.rpc('daily_report_data', { p_lost_days: settings.lostDays });
-  if (error) throw new Error(error.message);
-  const report = data as DailyReportData;
+  const [rep, st, yd] = await Promise.all([
+    sb.rpc('daily_report_data', { p_lost_days: settings.lostDays }),
+    sb.rpc('pod_stats', { p: {} }),
+    sb.rpc('report_yesterday'),
+  ]);
+  for (const r of [rep, st, yd]) if (r.error) throw new Error(r.error.message);
+  const report = rep.data as DailyReportData;
+  const s = st.data as PodStats;
+  const y = yd.data as Yesterday;
   const filename = `lost-pod-report-${report.report_date}.xlsx`;
-  const html = renderDailyReportHtml(report, {
-    agingOrder: settings.agingOrder, lostDays: settings.lostDays, attachmentName: opts.withAttachment ? filename : null, siteUrl: publicEnv.siteUrl,
+  const html = statsEmailHtml(s, y, {
+    intro: `Lost &amp; POD daily report for <b>${fmtDate(y.day)}</b> (yesterday's work; today's comes in tomorrow's report). Numbers as of ${fmtDate(report.report_date)} morning.`,
+    footer: `${opts.withAttachment ? `Every case is in the attached Excel (${filename}). ` : ''}Open the dashboard for the lists: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a>`,
+    agents: true,
   });
   const xlsx = opts.withAttachment ? await buildReportWorkbook(report, await fetchAllCases(sb), settings.agingOrder) : null;
   return {
     data: report, html, filename, xlsx, recipients: settings.recipients, cc: settings.cc,
-    subject: `Lost / POD daily report — ${fmtDate(report.report_date)} — ${report.summary.total_open} open, ${report.summary.lost_pending} awaiting Lost approval`,
+    subject: `Lost / POD daily report — ${fmtDate(y.day)} — ${s.pending} pending POD (${s.critical} critical), ${s.lost_pending} loss requested`,
   };
 }
 

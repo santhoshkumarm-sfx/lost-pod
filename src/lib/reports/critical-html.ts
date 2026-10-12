@@ -9,7 +9,7 @@ export interface CriticalRow {
 const esc = (v: unknown) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const th = (t: string, a = 'left') => `<th style="background:#14223A;color:#fff;font-size:12px;padding:5px 8px;text-align:${a};white-space:nowrap">${esc(t)}</th>`;
 const td = (v: unknown, a = 'left') => `<td style="padding:4px 8px;font-size:12px;border:1px solid #DCDFD8;text-align:${a}">${v === null || v === undefined || v === '' ? '—' : v}</td>`;
-const BODY_ROWS = 200;
+const BODY_ROWS = 50;   // the rest is in the attachment; Gmail rejects large bodies
 
 function group(rows: CriticalRow[], key: (r: CriticalRow) => string) {
   const m = new Map<string, { n: number; oldest: number }>();

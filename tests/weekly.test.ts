@@ -26,7 +26,7 @@ describe('weekly summary', () => {
   it('hides idle clients, escapes text and caps long lists in the body', () => {
     expect(html).not.toContain('>Quiet<');
     expect(html).not.toContain('<script>x</script>');
-    expect(html).toContain('Showing 100 of 130');
+    expect(html).toContain('Showing 50 of 130');
     expect(html).toContain('Client portal');
   });
   it('builds the attachment with every row', async () => {
@@ -66,7 +66,7 @@ describe('daily critical alert', () => {
     const html = renderCriticalHtml(rows, { days: 7, siteUrl: 'https://x.test', attachmentName: 'c.xlsx' });
     expect(html).toContain('By client');
     expect(html).toContain('Unassigned');
-    expect(html).toContain('Showing 200 of 205');
+    expect(html).toContain('Showing 50 of 205');
     expect(html).not.toContain('<b>x</b>');
     expect(html).toContain('>205<');
     expect(criticalSubject(rows, 7)).toContain('205 shipments over 7 days');

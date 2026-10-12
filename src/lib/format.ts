@@ -59,15 +59,3 @@ export function clientStatusLabel(category: string | null | undefined, label: st
   if (category === 'lost_pending') return 'Loss requested — under review';
   return label;
 }
-
-/** Short rupees for tight table cells: ₹950, ₹12.4k, ₹3.2L, ₹1.05Cr. */
-export function fmtInrShort(v: number | string | null | undefined): string {
-  const n = Number(v ?? 0);
-  if (!Number.isFinite(n)) return '—';
-  const a = Math.abs(n);
-  const t = (x: number, u: string) => `₹${x >= 100 ? Math.round(x) : Number(x.toFixed(x >= 10 ? 1 : 2))}${u}`;
-  if (a >= 1e7) return t(n / 1e7, 'Cr');
-  if (a >= 1e5) return t(n / 1e5, 'L');
-  if (a >= 1e3) return t(n / 1e3, 'k');
-  return `₹${Math.round(n)}`;
-}

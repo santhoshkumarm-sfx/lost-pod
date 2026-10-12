@@ -141,5 +141,7 @@ export interface PodStats {
     pod_shared: number; lost_pending: number; lost: number; oldest: number | null;
     total_value: number; pending_value: number; critical_value: number; pod_shared_value: number; lost_pending_value: number; lost_value: number;
   }[];
+  by_hub: { hub: string; city: string | null; pending: number; pending_value: number; critical: number; age: number[]; age_value: number[] }[];
+  hub_loss: { hub: string; city: string | null; lost: number; lost_value: number; lost_pending: number; lost_pending_value: number }[];
   by_agent: { agent_id: string | null; agent: string; pending: number; critical: number; oldest: number | null; age: number[]; age_value: number[]; pending_value: number }[];
 }

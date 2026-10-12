@@ -8,7 +8,7 @@ import { PivotTable } from '@/components/pivot';
 import { requireInternal } from '@/lib/auth';
 import type { SearchParams } from '@/lib/flash';
 import { getAgents, getBuckets, getClients, getPocs, getStatuses } from '@/lib/lookups';
-import { fmtInrShort, fmtNum, SOURCE_LABELS } from '@/lib/format';
+import { fmtNum, SOURCE_LABELS } from '@/lib/format';
 import { createClient } from '@/lib/supabase/server';
 import type { CaseRow } from '@/lib/types';
 
@@ -258,21 +258,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
     k === 'pending' ? cases({ category: 'pending_pod' }) : k === 'critical' ? cases({ category: 'critical' })
       : k === 'shared' ? cases({ category: 'pod_done' }) : k === 'lost_pending' ? `/lost-approval${f.client ? `?client=${f.client}` : ''}`
         : cases({ category: 'lost' });
-  const byValue = sp.measure !== 'count';   // default: ₹ value with the AWB count under it
-  const fmt = byValue ? fmtInrShort : fmtNum;
   const ageCols = s.pending_age.map((b) => ({ label: b.max === b.min ? `${b.label} d` : b.label }));
+  const fmtRs = (v: number) => fmtNum(Math.round(v));
   const hotFrom = s.pending_age.findIndex((b) => b.min > s.critical_days);
+  const hot = hotFrom >= 0 ? hotFrom : undefined;
   const clientKey = (id: string | null) => id ?? 'none';
-  const measureHref = (m: 'count' | 'value') => `/dashboard${filtersToQuery(f as never, { measure: m === 'count' ? 'count' : null, page: null, size: null, sort: null, dir: null, category: null })}`;
-  const measureToggle = (
-    <div className="flex overflow-hidden rounded border border-line text-xs">
-      <Link href={measureHref('value')} className={`px-3 py-1.5 no-underline ${byValue ? 'bg-night font-semibold text-white' : 'text-ink-soft'}`}>₹ value + AWBs</Link>
-      <Link href={measureHref('count')} className={`px-3 py-1.5 no-underline ${byValue ? 'text-ink-soft' : 'bg-night font-semibold text-white'}`}>AWBs only</Link>
-    </div>
-  );
   const agentHref = (a: { agent_id: string | null; agent: string }, extra: Record<string, string | null> = {}) =>
     a.agent_id ? { agent: a.agent_id, ...extra } : a.agent === 'Unassigned' ? { agent: 'unassigned', ...extra } : { q: a.agent, ...extra };
-  const valueNote = byValue && s.value?.pending_no_value ? ` ${fmtNum(s.value.pending_no_value)} pending AWB(s) have no product value yet (counted as ₹0) — add them under Product value & OTP.` : '';
+  const valueNote = s.value?.pending_no_value ? ` ${fmtNum(s.value.pending_no_value)} pending AWB(s) have no product value yet (counted as ₹0) — add them under Product value & OTP.` : '';
   const statusCols = [
     { label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)` }, { label: 'POD shared / closed' },
     { label: 'Loss requested' }, { label: 'Loss accepted' },
@@ -294,7 +287,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         clearHref="/dashboard"
         fields={['q', 'client', 'agent']}
         more={['hub', 'poc', 'source', 'dates', 'value']}
-        hidden={byValue ? {} : { measure: 'count' }}
         clients={clients}
         agents={agents}
         criticalDays={s.critical_days}
@@ -307,64 +299,100 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       )}
       <PodTiles s={s} href={tileHref} />
 
-      <PivotTable
-        title={`Pending POD — by age${byValue ? ' — ₹ product value, AWBs below' : ''}`}
-        note={`Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.${valueNote}`}
-        actions={measureToggle}
-        rowHeader="Client"
-        columns={ageCols}
-        hotFrom={hotFrom >= 0 ? hotFrom : undefined}
-        format={fmt}
-        rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
-          label: c.client,
-          href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
-          cells: (byValue ? c.age_value : c.age).map((v, i) => ({ value: Number(v), sub: byValue ? c.age[i] : undefined, href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
-        }))}
-        columnHref={(i) => rangeHref(s.pending_age[i])}
-        totalHref={cases({ category: 'pending_pod' })}
-      />
-
-      <PivotTable
-        title={`All cases — client × status${byValue ? ' — ₹ product value, AWBs below' : ''}`}
-        rowHeader="Client"
-        columns={statusCols}
-        format={fmt}
-        actions={measureToggle}
-        rows={s.by_client.map((c) => ({
-          label: c.client,
-          href: cases({ client: clientKey(c.client_id), category: 'all' }),
-          cells: (byValue
-            ? [c.pending_value, c.critical_value, c.pod_shared_value, c.lost_pending_value, c.lost_value]
-            : [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost]).map((v, i) => ({
-            value: Number(v),
-            sub: byValue ? [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost][i] : undefined,
-            href: statusCats[i] === 'lost_pending' ? `/lost-approval?client=${clientKey(c.client_id)}` : cases({ client: clientKey(c.client_id), category: statusCats[i] }),
-          })),
-        }))}
-        columnHref={(i) => (statusCats[i] === 'lost_pending' ? '/lost-approval' : cases({ category: statusCats[i] }))}
-        totalHref={cases({ category: 'all' })}
-        notInTotal={[1]}
-        note="Grand Total counts each case once; Critical is part of Pending POD, so it is not added again."
-      />
-
-      {user.role !== 'client_poc' && (
+      {(['count', 'value'] as const).map((m) => (
         <PivotTable
-          title={`Pending POD — agent × age${byValue ? ' — ₹ product value, AWBs below' : ''}`}
-          note="Agent = the person assigned in the dashboard, or the agent name in the tracker."
-          actions={measureToggle}
-          rowHeader="Agent"
+          key={`age-${m}`}
+          title={m === 'count' ? 'Pending POD by age — AWBs' : 'Pending POD by age — Product value (₹)'}
+          note={m === 'count' ? `Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.` : `Same shipments, by product value.${valueNote}`}
+          rowHeader="Client"
           columns={ageCols}
-          hotFrom={hotFrom >= 0 ? hotFrom : undefined}
-          format={fmt}
-          rows={s.by_agent.map((a) => ({
-            label: a.agent,
-            href: cases({ ...agentHref(a), category: 'pending_pod' }),
-            cells: (byValue ? a.age_value : a.age).map((v, i) => ({ value: Number(v), sub: byValue ? a.age[i] : undefined, href: rangeHref(s.pending_age[i], agentHref(a)) })),
+          hotFrom={hot}
+          format={m === 'value' ? fmtRs : fmtNum}
+          rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
+            label: c.client,
+            href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
+            cells: (m === 'value' ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
           }))}
           columnHref={(i) => rangeHref(s.pending_age[i])}
           totalHref={cases({ category: 'pending_pod' })}
         />
-      )}
+      ))}
+
+      {(['value', 'count'] as const).map((m) => (
+        <PivotTable
+          key={`hub-${m}`}
+          title={m === 'value' ? 'Top 20 hubs — Pending POD by Product value (₹)' : 'Top 20 hubs — Pending POD AWBs (same hubs)'}
+          note={m === 'value' ? 'Hubs with the highest value still waiting for a POD (cases without a hub are left out).' : undefined}
+          rowHeader="Hub"
+          columns={ageCols}
+          hotFrom={hot}
+          format={m === 'value' ? fmtRs : fmtNum}
+          rows={s.by_hub.map((h) => ({
+            label: h.hub,
+            href: cases({ hub: h.hub, category: 'pending_pod' }),
+            cells: (m === 'value' ? h.age_value : h.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { hub: h.hub }) })),
+          }))}
+        />
+      ))}
+
+      {(['count', 'value'] as const).map((m) => (
+        <PivotTable
+          key={`status-${m}`}
+          title={m === 'count' ? 'All cases — client × status — AWBs' : 'All cases — client × status — Product value (₹)'}
+          rowHeader="Client"
+          columns={statusCols}
+          format={m === 'value' ? fmtRs : fmtNum}
+          rows={s.by_client.map((c) => ({
+            label: c.client,
+            href: cases({ client: clientKey(c.client_id), category: 'all' }),
+            cells: (m === 'value'
+              ? [c.pending_value, c.critical_value, c.pod_shared_value, c.lost_pending_value, c.lost_value]
+              : [c.pending, c.critical, c.pod_shared, c.lost_pending, c.lost]).map((v, i) => ({
+              value: Number(v),
+              href: statusCats[i] === 'lost_pending' ? `/lost-approval?client=${clientKey(c.client_id)}` : cases({ client: clientKey(c.client_id), category: statusCats[i] }),
+            })),
+          }))}
+          columnHref={(i) => (statusCats[i] === 'lost_pending' ? '/lost-approval' : cases({ category: statusCats[i] }))}
+          totalHref={cases({ category: 'all' })}
+          notInTotal={[1]}
+          note={m === 'count' ? 'Grand Total counts each case once; Critical is part of Pending POD, so it is not added again.' : undefined}
+        />
+      ))}
+
+      <PivotTable
+        title="Top 15 hubs — Loss accepted by Product value (₹)"
+        note="Hubs with the highest accepted loss; loss still waiting for approval next to it."
+        rowHeader="Hub"
+        columns={[{ label: 'Loss accepted AWBs' }, { label: 'Loss accepted ₹' }, { label: 'Loss requested AWBs' }, { label: 'Loss requested ₹' }]}
+        formats={[fmtNum, fmtRs, fmtNum, fmtRs]}
+        noTotalCol
+        rows={s.hub_loss.map((h) => ({
+          label: h.hub,
+          cells: [
+            { value: h.lost, href: cases({ hub: h.hub, category: 'lost' }) }, { value: Number(h.lost_value) },
+            { value: h.lost_pending, href: `/lost-approval?q=${encodeURIComponent(h.hub)}` }, { value: Number(h.lost_pending_value) },
+          ],
+        }))}
+      />
+
+      {(['count', 'value'] as const).map((m) => (
+        <PivotTable
+          key={`agent-${m}`}
+          title={m === 'count' ? 'Pending POD — agent × age — AWBs' : 'Pending POD — agent × age — Product value (₹)'}
+          note={m === 'count' ? 'Agent = the person assigned in the dashboard, or the agent name in the tracker.' : undefined}
+          rowHeader="Agent"
+          columns={ageCols}
+          hotFrom={hot}
+          format={m === 'value' ? fmtRs : fmtNum}
+          rows={s.by_agent.map((a) => ({
+            label: a.agent,
+            href: cases({ ...agentHref(a), category: 'pending_pod' }),
+            cells: (m === 'value' ? a.age_value : a.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], agentHref(a)) })),
+          }))}
+          columnHref={(i) => rangeHref(s.pending_age[i])}
+          totalHref={cases({ category: 'pending_pod' })}
+        />
+      ))}
     </>
   );
 }
