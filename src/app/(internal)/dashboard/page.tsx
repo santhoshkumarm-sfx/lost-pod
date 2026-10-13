@@ -331,19 +331,21 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
       {both.map((m, k) => (
         <PivotTable
-          key={`pending-${m}`}
-          title={`${k + 1}. POD pending`}
-          rowHeader=""
+          key={`client-${m}`}
+          title={`${k + 1}. POD pending — client wise`}
+          rowHeader="Client"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
-          noTotalRow
-          rows={[{
-            label: m === 'value' ? 'Product value (₹)' : 'AWBs',
-            href: cases({ category: 'pending_pod' }),
-            cells: s.pending_age.map((b) => ({ value: m === 'value' ? Number(b.value) : b.count, href: rangeHref(b) })),
-          }]}
+          keepOrder
+          columnHref={(i) => rangeHref(s.pending_age[i])}
+          totalHref={cases({ category: 'pending_pod' })}
+          rows={(m === 'value' ? r.clientsV : r.clientsA).map((c) => ({
+            label: c.client,
+            href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
+            cells: (m === 'value' ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
+          }))}
         />
       ))}
 
@@ -384,26 +386,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
       {both.map((m, k) => (
         <PivotTable
-          key={`client-${m}`}
-          title={`${k + 7}. Top 15 clients — POD pending`}
-          rowHeader="Client"
-          columns={ageCols}
-          hotFrom={hot}
-          format={m === 'value' ? fmtRs : fmtNum}
-          variant={m}
-          keepOrder
-          rows={(m === 'value' ? r.clientsV : r.clientsA).map((c) => ({
-            label: c.client,
-            href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
-            cells: (m === 'value' ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
-          }))}
-        />
-      ))}
-
-      {both.map((m, k) => (
-        <PivotTable
           key={`agent-${m}`}
-          title={`${k + 9}. POD pending — agent wise`}
+          title={`${k + 7}. POD pending — agent wise`}
           rowHeader="Agent"
           columns={ageCols}
           hotFrom={hot}
@@ -423,7 +407,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       {both.map((m, k) => (
         <PivotTable
           key={`losta-${m}`}
-          title={`${k + 11}. POD accepted lost — agent wise`}
+          title={`${k + 9}. POD accepted lost — agent wise`}
           rowHeader="Agent"
           columns={[{ label: m === 'value' ? 'Loss accepted (₹)' : 'Loss accepted (AWBs)' }]}
           format={m === 'value' ? fmtRs : fmtNum}

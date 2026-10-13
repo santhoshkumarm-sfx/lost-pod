@@ -43,14 +43,12 @@ export async function dashboardXlsx(s: PodStats): Promise<Buffer> {
   };
   const age = (title: string, labels: string[], rows: { labels: (string | null)[]; cells: number[] }[], teal: boolean) => table(title, labels, ages, rows, { teal });
   const one = { total: false } as const;
-  table('POD pending (₹)', [''], ages, [{ labels: ['Product value (₹)'], cells: s.pending_age.map((b) => Number(b.value)) }], { foot: false, teal: true });
-  table('POD pending (AWBs)', [''], ages, [{ labels: ['AWBs'], cells: s.pending_age.map((b) => b.count) }], { foot: false });
+  age('POD pending — client wise (₹)', ['Client'], r.clientsV.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })), true);
+  age('POD pending — client wise (AWBs)', ['Client'], r.clientsA.map((c) => ({ labels: [c.client], cells: c.age })), false);
   table('POD accepted lost — client wise (₹)', ['Client'], ['Loss accepted (₹)'], r.lostClientsV.map((c) => ({ labels: [c.client], cells: [Number(c.lost_value)] })), { ...one, teal: true });
   table('POD accepted lost — client wise (AWBs)', ['Client'], ['Loss accepted (AWBs)'], r.lostClientsA.map((c) => ({ labels: [c.client], cells: [c.lost] })), one);
   age('Top 15 hubs — POD pending (₹)', ['Hub', 'City'], r.hubsV.map((h) => ({ labels: [h.hub, h.city], cells: h.age_value.map(Number) })), true);
   age('Top 15 hubs — POD pending (AWBs)', ['Hub', 'City'], r.hubsA.map((h) => ({ labels: [h.hub, h.city], cells: h.age })), false);
-  age('Top 15 clients — POD pending (₹)', ['Client'], r.clientsV.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })), true);
-  age('Top 15 clients — POD pending (AWBs)', ['Client'], r.clientsA.map((c) => ({ labels: [c.client], cells: c.age })), false);
   age('POD pending — agent wise (₹)', ['Agent'], r.agentsV.map((a) => ({ labels: [a.agent], cells: a.age_value.map(Number) })), true);
   age('POD pending — agent wise (AWBs)', ['Agent'], r.agentsA.map((a) => ({ labels: [a.agent], cells: a.age })), false);
   table('POD accepted lost — agent wise (₹)', ['Agent'], ['Loss accepted (₹)'], r.lostAgentsV.map((a) => ({ labels: [a.agent], cells: [Number(a.lost_value)] })), { ...one, teal: true });
