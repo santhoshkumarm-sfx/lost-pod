@@ -296,7 +296,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
     a.agent_id ? { agent: a.agent_id } : a.agent === 'Unassigned' ? { agent: 'unassigned' } : { q: a.agent };
   const r = reportRows(s);
   const both = ['value', 'count'] as const;
-  const lostCols = [{ label: 'Product value (₹)' }, { label: 'AWBs' }];
 
   return (
     <>
@@ -330,44 +329,52 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       )}
       <PodTiles s={s} href={tileHref} />
 
-      <PivotTable
-        title="1. POD pending"
-        rowHeader=""
-        columns={ageCols}
-        hotFrom={hot}
-        variant="mixed"
-        keepOrder
-        noTotalRow
-        rows={[
-          { label: 'Product value (₹)', cells: s.pending_age.map((b) => ({ value: Number(b.value), href: rangeHref(b) })) },
-          { label: 'AWBs', cells: s.pending_age.map((b) => ({ value: b.count, href: rangeHref(b) })) },
-        ]}
-      />
+      {both.map((m, k) => (
+        <PivotTable
+          key={`pending-${m}`}
+          title={`${k + 1}. POD pending`}
+          rowHeader=""
+          columns={ageCols}
+          hotFrom={hot}
+          format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
+          noTotalRow
+          rows={[{
+            label: m === 'value' ? 'Product value (₹)' : 'AWBs',
+            href: cases({ category: 'pending_pod' }),
+            cells: s.pending_age.map((b) => ({ value: m === 'value' ? Number(b.value) : b.count, href: rangeHref(b) })),
+          }]}
+        />
+      ))}
 
-      <PivotTable
-        title="2. POD accepted lost — client wise"
-        rowHeader="Client"
-        columns={lostCols}
-        variant="mixed"
-        noTotalCol
-        rows={r.lostClients.map((c) => ({
-          label: c.client,
-          href: cases({ client: clientKey(c.client_id), category: 'lost' }),
-          cells: [{ value: Number(c.lost_value) }, { value: c.lost, href: cases({ client: clientKey(c.client_id), category: 'lost' }) }],
-        }))}
-      />
+      {both.map((m, k) => (
+        <PivotTable
+          key={`lostc-${m}`}
+          title={`${k + 3}. POD accepted lost — client wise`}
+          rowHeader="Client"
+          columns={[{ label: m === 'value' ? 'Loss accepted (₹)' : 'Loss accepted (AWBs)' }]}
+          format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
+          noTotalCol
+          rows={(m === 'value' ? r.lostClientsV : r.lostClientsA).map((c) => ({
+            label: c.client,
+            href: cases({ client: clientKey(c.client_id), category: 'lost' }),
+            cells: [{ value: m === 'value' ? Number(c.lost_value) : c.lost, href: cases({ client: clientKey(c.client_id), category: 'lost' }) }],
+          }))}
+        />
+      ))}
 
-      {both.map((m) => (
+      {both.map((m, k) => (
         <PivotTable
           key={`hub-${m}`}
-          title={`${m === 'value' ? 3 : 4}. Top 15 hubs — POD pending`}
+          title={`${k + 5}. Top 15 hubs — POD pending`}
           rowHeader="Hub"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
           keepOrder
-          rows={r.hubs.map((h) => ({
+          rows={(m === 'value' ? r.hubsV : r.hubsA).map((h) => ({
             label: h.hub,
             href: cases({ hub: h.hub, category: 'pending_pod' }),
             cells: (m === 'value' ? h.age_value : h.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { hub: h.hub }) })),
@@ -375,36 +382,35 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         />
       ))}
 
-      {both.map((m) => (
+      {both.map((m, k) => (
         <PivotTable
           key={`client-${m}`}
-          title={`${m === 'value' ? 5 : 6}. Top 15 clients — POD pending`}
+          title={`${k + 7}. Top 15 clients — POD pending`}
           rowHeader="Client"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
           keepOrder
-          rows={r.clients.map((c) => ({
+          rows={(m === 'value' ? r.clientsV : r.clientsA).map((c) => ({
             label: c.client,
             href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
             cells: (m === 'value' ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
           }))}
-          columnHref={(i) => rangeHref(s.pending_age[i])}
         />
       ))}
 
-      {both.map((m) => (
+      {both.map((m, k) => (
         <PivotTable
           key={`agent-${m}`}
-          title={`${m === 'value' ? 7 : 8}. POD pending — agent wise`}
+          title={`${k + 9}. POD pending — agent wise`}
           rowHeader="Agent"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
           keepOrder
-          rows={r.agents.map((a) => ({
+          rows={(m === 'value' ? r.agentsV : r.agentsA).map((a) => ({
             label: a.agent,
             href: cases({ ...agentQ(a), category: 'pending_pod' }),
             cells: (m === 'value' ? a.age_value : a.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], agentQ(a)) })),
@@ -414,18 +420,22 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         />
       ))}
 
-      <PivotTable
-        title="9. POD accepted lost — agent wise"
-        rowHeader="Agent"
-        columns={lostCols}
-        variant="mixed"
-        noTotalCol
-        rows={r.lostAgents.map((a) => ({
-          label: a.agent,
-          href: cases({ ...agentQ(a), category: 'lost' }),
-          cells: [{ value: Number(a.lost_value) }, { value: a.lost, href: cases({ ...agentQ(a), category: 'lost' }) }],
-        }))}
-      />
+      {both.map((m, k) => (
+        <PivotTable
+          key={`losta-${m}`}
+          title={`${k + 11}. POD accepted lost — agent wise`}
+          rowHeader="Agent"
+          columns={[{ label: m === 'value' ? 'Loss accepted (₹)' : 'Loss accepted (AWBs)' }]}
+          format={m === 'value' ? fmtRs : fmtNum}
+          variant={m}
+          noTotalCol
+          rows={(m === 'value' ? r.lostAgentsV : r.lostAgentsA).map((a) => ({
+            label: a.agent,
+            href: cases({ ...agentQ(a), category: 'lost' }),
+            cells: [{ value: m === 'value' ? Number(a.lost_value) : a.lost, href: cases({ ...agentQ(a), category: 'lost' }) }],
+          }))}
+        />
+      ))}
     </>
   );
 }

@@ -961,13 +961,18 @@ returns jsonb language sql stable security invoker set search_path = public as $
                coalesce(sum(value) filter (where status_category = 'lost_pending'), 0) as lost_pending_value
         from base where status_category in ('lost', 'lost_pending') group by assigned_agent, agent
         having count(*) filter (where status_category = 'lost') > 0) g), '[]'::jsonb),
-    -- Top 15 hubs by pending-POD product value (then AWBs).
+    -- Hubs with pending POD: the top 15 by product value plus the top 15 by AWBs.
     'by_hub', coalesce((select jsonb_agg(h order by h.pending_value desc, h.pending desc, h.hub) from (
         select pb.hub_name as hub, max(pb.city) as city, count(*) as pending, coalesce(sum(value), 0) as pending_value,
                count(*) filter (where aging_days > (select d from k)) as critical,
                (select jsonb_agg(coalesce(x.cnt, 0) order by b.n) from b left join ph x on x.n = b.n and x.hub_name = pb.hub_name) as age,
                (select jsonb_agg(coalesce(x.val, 0) order by b.n) from b left join ph x on x.n = b.n and x.hub_name = pb.hub_name) as age_value
-        from pb where pb.hub_name <> 'No hub' group by pb.hub_name order by coalesce(sum(value), 0) desc, count(*) desc limit 15) h), '[]'::jsonb),
+        from pb where pb.hub_name <> 'No hub'
+          and pb.hub_name in (   -- top 15 by product value and top 15 by AWBs (each table picks its own 15)
+            select hub_name from (select hub_name, row_number() over (order by sum(value) desc, count(*) desc, hub_name) rv,
+                                                 row_number() over (order by count(*) desc, sum(value) desc, hub_name) rc
+                                  from pb where hub_name <> 'No hub' group by hub_name) t where rv <= 15 or rc <= 15)
+        group by pb.hub_name) h), '[]'::jsonb),
     -- Top 15 hubs by accepted loss (product value), with loss requested next to it.
     'hub_loss', coalesce((select jsonb_agg(h order by h.lost_value desc, h.lost desc, h.hub) from (
         select hub_name as hub, max(city) as city,
@@ -1833,7 +1838,8 @@ create trigger audit_agent_clients after insert or update or delete on public.ag
 update public.cases set assigned_agent_name = null where assigned_agent_name ~ '\d';
 
 -- No "0 days" anywhere: the first aging bucket reads 1–2.
-update public.aging_buckets set label = '1–2' where label = '0–2' and min_days = 0;
+delete from public.aging_buckets where label = '0–2' and exists (select 1 from public.aging_buckets where label = '1–2');
+update public.aging_buckets set label = '1–2' where label = '0–2';
 
 -- To / CC for every email (Reports page).
 insert into public.app_settings (key, value, description) values

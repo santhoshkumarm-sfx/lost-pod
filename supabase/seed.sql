@@ -17,7 +17,7 @@ on conflict (code) do nothing;
 
 -- ---------- Aging buckets ----------
 insert into public.aging_buckets (label, min_days, max_days, sort_order) values
-  ('0–2', 0, 2, 1), ('3–7', 3, 7, 2), ('8–15', 8, 15, 3), ('16–30', 16, 30, 4),
+  ('1–2', 0, 2, 1), ('3–7', 3, 7, 2), ('8–15', 8, 15, 3), ('16–30', 16, 30, 4),
   ('31–60', 31, 60, 5), ('61–90', 61, 90, 6), ('90+', 91, null, 7)
 on conflict (label) do nothing;
 

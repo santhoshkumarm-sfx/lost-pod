@@ -55,20 +55,30 @@ export function mailTable(t: MailTable): string {
 <table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;border-color:${BORDER};font-size:12px;font-family:Arial,sans-serif">${head}${body}${empty}${foot}</table>`;
 }
 
-/** The rows of the report tables, shared by the email and the dashboard so both always show the same thing. */
+/**
+ * The rows of the report tables, shared by the email, the dashboard and the Excel so all three always match.
+ * Every table is largest to smallest by its own measure: ₹ tables by product value, AWB tables by AWB count.
+ */
 export function reportRows(s: PodStats) {
-  const byValue = <T extends { pending_value: number; pending: number }>(xs: T[]) =>
-    [...xs].sort((a, b) => Number(b.pending_value) - Number(a.pending_value) || b.pending - a.pending);
+  const desc = <T,>(xs: T[], main: (x: T) => number, tie: (x: T) => number) =>
+    [...xs].sort((a, b) => main(b) - main(a) || tie(b) - tie(a));
+  const pv = (x: { pending_value: number }) => Number(x.pending_value) || 0;
+  const pc = (x: { pending: number }) => x.pending;
+  const lv = (x: { lost_value: number }) => Number(x.lost_value) || 0;
+  const lc = (x: { lost: number }) => x.lost;
+  const pendingClients = s.by_client.filter((c) => c.pending > 0);
+  const lostClients = s.by_client.filter((c) => c.lost > 0);
+  const lostAgents = (s.agent_loss ?? []).filter((a) => a.lost > 0);
   return {
-    clients: byValue(s.by_client.filter((c) => c.pending > 0)).slice(0, 15),
-    hubs: byValue(s.by_hub).slice(0, 15),
-    agents: byValue(s.by_agent),
-    lostClients: s.by_client.filter((c) => c.lost > 0).sort((a, b) => Number(b.lost_value) - Number(a.lost_value) || b.lost - a.lost),
-    lostAgents: (s.agent_loss ?? []).filter((a) => a.lost > 0).sort((a, b) => Number(b.lost_value) - Number(a.lost_value) || b.lost - a.lost),
+    hubsV: desc(s.by_hub, pv, pc).slice(0, 15), hubsA: desc(s.by_hub, pc, pv).slice(0, 15),
+    clientsV: desc(pendingClients, pv, pc).slice(0, 15), clientsA: desc(pendingClients, pc, pv).slice(0, 15),
+    agentsV: desc(s.by_agent, pv, pc), agentsA: desc(s.by_agent, pc, pv),
+    lostClientsV: desc(lostClients, lv, lc), lostClientsA: desc(lostClients, lc, lv),
+    lostAgentsV: desc(lostAgents, lv, lc), lostAgentsA: desc(lostAgents, lc, lv),
   };
 }
 
-/** The report body: the same tables as the dashboard, product value (₹) first, then AWBs. */
+/** The report body: the same tables as the dashboard, each as ₹ product value first, then AWBs. */
 export function statsEmailHtml(s: PodStats, o: { intro: string; footer: string }): string {
   const ageCols = s.pending_age.map((b) => b.label);
   const hotFrom = s.pending_age.findIndex((b) => b.min > s.critical_days);
@@ -77,22 +87,21 @@ export function statsEmailHtml(s: PodStats, o: { intro: string; footer: string }
   const r = reportRows(s);
   const sections: string[] = [];
   const add = (t: MailTable) => sections.push(mailTable({ ...t, title: `${sections.length + 1}. ${t.title}` }));
-  const age = { columns: ageCols, hotFrom: hot, firstTotal };
+  const age = { columns: ageCols, hotFrom: hot, firstTotal, keepOrder: true };
+  const one = { noTotalCol: true };
 
-  add({ title: 'POD pending', labels: [''], ...age, keepOrder: true, totalRow: false, rows: [
-    { labels: ['Product value (₹)'], cells: s.pending_age.map((b) => Number(b.value)) },
-    { labels: ['AWBs'], cells: s.pending_age.map((b) => b.count) },
-  ] });
-  add({ title: 'POD accepted lost — client wise', labels: ['Client'], columns: ['Product value (₹)', 'AWBs'], noTotalCol: true, valueTable: true,
-    rows: r.lostClients.map((c) => ({ labels: [c.client], cells: [Number(c.lost_value), c.lost] })) });
-  add({ title: 'Top 15 hubs — POD pending (₹)', labels: ['Hub', 'City'], ...age, rows: r.hubs.map((h) => ({ labels: [h.hub, h.city], cells: h.age_value.map(Number) })) });
-  add({ title: 'Top 15 hubs — POD pending (AWBs)', labels: ['Hub', 'City'], ...age, rows: r.hubs.map((h) => ({ labels: [h.hub, h.city], cells: h.age })) });
-  add({ title: 'Top 15 clients — POD pending (₹)', labels: ['Client'], ...age, rows: r.clients.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })) });
-  add({ title: 'Top 15 clients — POD pending (AWBs)', labels: ['Client'], ...age, rows: r.clients.map((c) => ({ labels: [c.client], cells: c.age })) });
-  add({ title: 'POD pending — agent wise (₹)', labels: ['Agent'], ...age, rows: r.agents.map((a) => ({ labels: [a.agent], cells: a.age_value.map(Number) })) });
-  add({ title: 'POD pending — agent wise (AWBs)', labels: ['Agent'], ...age, rows: r.agents.map((a) => ({ labels: [a.agent], cells: a.age })) });
-  add({ title: 'POD accepted lost — agent wise', labels: ['Agent'], columns: ['Product value (₹)', 'AWBs'], noTotalCol: true, valueTable: true,
-    rows: r.lostAgents.map((a) => ({ labels: [a.agent], cells: [Number(a.lost_value), a.lost] })) });
+  add({ title: 'POD pending (₹)', labels: [''], ...age, totalRow: false, rows: [{ labels: ['Product value (₹)'], cells: s.pending_age.map((b) => Number(b.value)) }] });
+  add({ title: 'POD pending (AWBs)', labels: [''], ...age, totalRow: false, rows: [{ labels: ['AWBs'], cells: s.pending_age.map((b) => b.count) }] });
+  add({ title: 'POD accepted lost — client wise (₹)', labels: ['Client'], columns: ['Loss accepted (₹)'], ...one, valueTable: true, rows: r.lostClientsV.map((c) => ({ labels: [c.client], cells: [Number(c.lost_value)] })) });
+  add({ title: 'POD accepted lost — client wise (AWBs)', labels: ['Client'], columns: ['Loss accepted (AWBs)'], ...one, rows: r.lostClientsA.map((c) => ({ labels: [c.client], cells: [c.lost] })) });
+  add({ title: 'Top 15 hubs — POD pending (₹)', labels: ['Hub', 'City'], ...age, rows: r.hubsV.map((h) => ({ labels: [h.hub, h.city], cells: h.age_value.map(Number) })) });
+  add({ title: 'Top 15 hubs — POD pending (AWBs)', labels: ['Hub', 'City'], ...age, rows: r.hubsA.map((h) => ({ labels: [h.hub, h.city], cells: h.age })) });
+  add({ title: 'Top 15 clients — POD pending (₹)', labels: ['Client'], ...age, rows: r.clientsV.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })) });
+  add({ title: 'Top 15 clients — POD pending (AWBs)', labels: ['Client'], ...age, rows: r.clientsA.map((c) => ({ labels: [c.client], cells: c.age })) });
+  add({ title: 'POD pending — agent wise (₹)', labels: ['Agent'], ...age, rows: r.agentsV.map((a) => ({ labels: [a.agent], cells: a.age_value.map(Number) })) });
+  add({ title: 'POD pending — agent wise (AWBs)', labels: ['Agent'], ...age, rows: r.agentsA.map((a) => ({ labels: [a.agent], cells: a.age })) });
+  add({ title: 'POD accepted lost — agent wise (₹)', labels: ['Agent'], columns: ['Loss accepted (₹)'], ...one, valueTable: true, rows: r.lostAgentsV.map((a) => ({ labels: [a.agent], cells: [Number(a.lost_value)] })) });
+  add({ title: 'POD accepted lost — agent wise (AWBs)', labels: ['Agent'], columns: ['Loss accepted (AWBs)'], ...one, rows: r.lostAgentsA.map((a) => ({ labels: [a.agent], cells: [a.lost] })) });
   return `<div style="font-family:Arial,sans-serif;color:#1B2330;font-size:13px">
 <p>Hi All,</p><p>${o.intro}</p>
 ${sections.join('\n')}

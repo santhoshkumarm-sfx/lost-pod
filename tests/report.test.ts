@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
-import { mailTable, statsEmailHtml } from '@/lib/reports/pivot-html';
+import { mailTable, reportRows, statsEmailHtml } from '@/lib/reports/pivot-html';
 import type { CaseExportRow, DailyReportData } from '@/lib/reports/types';
 import { buildCasesCsv, buildReportWorkbook, PORTAL_SHEET_COLUMNS } from '@/lib/reports/xlsx';
 
@@ -33,15 +33,25 @@ describe('report email tables', () => {
   };
   const html = statsEmailHtml(stats, { intro: 'x', footer: 'y' });
   it('has separate AWB and product value tables, numbered, with full numbers', () => {
-    expect(html).toContain('1. POD pending');
-    expect(html).toContain('2. POD accepted lost — client wise');
-    expect(html).toContain('3. Top 15 hubs — POD pending (₹)');
-    expect(html).toContain('6. Top 15 clients — POD pending (AWBs)');
-    expect(html).toContain('9. POD accepted lost — agent wise');
+    expect(html).toContain('1. POD pending (₹)');
+    expect(html).toContain('2. POD pending (AWBs)');
+    expect(html).toContain('3. POD accepted lost — client wise (₹)');
+    expect(html).toContain('6. Top 15 hubs — POD pending (AWBs)');
+    expect(html).toContain('8. Top 15 clients — POD pending (AWBs)');
+    expect(html).toContain('12. POD accepted lost — agent wise (AWBs)');
     expect(html).toContain('>5,000<');
     expect(html).toContain('>1,000<');
     expect(html).toContain('Total 1–7 days');
     expect(html).not.toContain('A <b>');
+  });
+  it('sorts each table by its own measure, largest first', () => {
+    const two = { ...stats, by_client: [
+      { ...stats.by_client[0], client: 'Big value', pending: 1, pending_value: 9000 },
+      { ...stats.by_client[0], client: 'Many AWBs', pending: 50, pending_value: 10 },
+    ] };
+    const r = reportRows(two as never);
+    expect(r.clientsV.map((c) => c.client)).toEqual(['Big value', 'Many AWBs']);
+    expect(r.clientsA.map((c) => c.client)).toEqual(['Many AWBs', 'Big value']);
   });
   it('keeps Critical out of the Total', () => {
     const t = mailTable({ title: 't', labels: ['r'], columns: ['a', 'b'], rows: [{ labels: ['x'], cells: [2, 1] }], notInTotal: [1] });
