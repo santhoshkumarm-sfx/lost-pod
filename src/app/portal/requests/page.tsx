@@ -39,7 +39,6 @@ export default async function PortalRequests({ searchParams }: { searchParams: S
     <>
       <div className="mb-5">
         <h1>Your Lost requests</h1>
-        <p className="mt-1 text-ink-soft">Every request to accept the loss of shipments, when it was made, and what Shadowfax decided for each AWB.</p>
       </div>
       <Flash sp={sp} />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">

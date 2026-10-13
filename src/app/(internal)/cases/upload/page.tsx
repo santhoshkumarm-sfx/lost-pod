@@ -29,7 +29,6 @@ export default async function UploadCasesPage({ searchParams }: { searchParams: 
     <>
       <PageHeader
         title="POD requests and uploads"
-        sub="Every submission (Excel here, or a client's request) is checked against the POD sheets: PODs found are shared at once, the rest become pending cases."
         actions={<><Link href="/cases/new" className="btn">Add by hand</Link><a href="/api/template/pending-cases" className="btn btn-primary">Download template</a></>}
       />
       <Flash sp={sp} />

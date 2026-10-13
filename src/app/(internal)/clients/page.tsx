@@ -27,7 +27,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Sear
     <>
       <PageHeader
         title={showRemoved ? 'Removed clients' : 'Clients'}
-        sub="Names and aliases used in trackers and emails, sender domains for identifying email escalations, and each client’s TAT."
         actions={admin ? <a href={showRemoved ? '/clients' : '/clients?removed=1'} className="btn btn-ghost">{showRemoved ? 'Back to clients' : 'Show removed clients'}</a> : undefined}
       />
       <Flash sp={sp} />

@@ -29,7 +29,6 @@ export default async function MappingsPage({ searchParams }: { searchParams: Sea
       <div className="mb-1 text-xs text-ink-faint"><Link href="/imports">Google Sheet imports</Link> / wording</div>
       <PageHeader
         title="Header and status wording"
-        sub="How tracker headers and free-text statuses are understood. Changes apply from the next sync; no deploy needed."
       />
       <Flash sp={sp} />
       <div className="grid gap-5 xl:grid-cols-2">

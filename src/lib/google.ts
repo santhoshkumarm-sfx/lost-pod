@@ -155,7 +155,7 @@ export interface MailAttachment {
 export async function sendMail(opts: { to: string[]; cc?: string[]; subject: string; html: string; attachments?: MailAttachment[] }): Promise<string> {
   if (!bridgeConfigured()) throw new BridgeError('Gmail is not connected: install the Google bridge (README → Google bridge).');
   await callBridge('sendMail', {
-    to: opts.to, cc: opts.cc ?? [], subject: opts.subject, html: opts.html,
+    to: opts.to, cc: opts.cc ?? [], subject: opts.subject, html: opts.html, senderName: 'POD lost',
     attachments: (opts.attachments ?? []).map((a) => ({ filename: a.filename, contentType: a.contentType, base64: a.content.toString('base64') })),
   });
   return 'sent';

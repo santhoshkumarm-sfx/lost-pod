@@ -33,7 +33,6 @@ export default async function NewEmailPage({ searchParams }: { searchParams: Sea
     <>
       <PageHeader
         title="Add email escalation"
-        sub="The email body is read directly (tables, lists and sentences). Gmail’s own summary is never used."
         actions={
           <nav className="flex gap-1">
             <Link href="/email-escalations/new" className={`btn btn-sm ${mode === 'gmail' ? 'border-ink bg-ink text-white hover:bg-ink' : ''}`}>Search Gmail</Link>

@@ -4,9 +4,10 @@ import { publicEnv } from '../env';
 import { sendMail } from '../google';
 import { sendCriticalAlert } from './critical';
 import { sendDailyReport } from './daily';
-import { buildWeeklyWorkbook, dueReports, renderWeeklyReportHtml, weeklySubject, type PendingCaseRow, type WeeklyReportData } from './weekly-html';
-
-const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+import { buildWeeklyWorkbook, dueReports, weeklySubject, type PendingCaseRow, type WeeklyReportData } from './weekly-html';
+import { statsEmailHtml } from './pivot-html';
+import { fmtDMY } from '../format';
+import type { PodStats } from '../cases/filters';
 
 async function settings(sb: SupabaseClient) {
   const { data } = await sb.from('app_settings').select('key, value').in('key', [
@@ -47,11 +48,15 @@ async function pendingCases(sb: SupabaseClient): Promise<PendingCaseRow[]> {
 }
 
 export async function buildWeeklyReport(sb: SupabaseClient, opts: { withAttachment: boolean }) {
-  const { data, error } = await sb.rpc('weekly_report_data', { p_days: 7 });
-  if (error) throw new Error(error.message);
-  const d = data as WeeklyReportData;
-  const filename = `lost-pod-weekly-${d.period_to}.xlsx`;
-  const html = renderWeeklyReportHtml(d, { siteUrl: publicEnv.siteUrl, attachmentName: opts.withAttachment ? filename : null });
+  const [wk, st] = await Promise.all([sb.rpc('weekly_report_data', { p_days: 7 }), sb.rpc('pod_stats', { p: {} })]);
+  for (const r of [wk, st]) if (r.error) throw new Error(r.error.message);
+  const d = wk.data as WeeklyReportData;
+  const filename = `pod-lost-weekly-${d.period_to}.xlsx`;
+  const html = statsEmailHtml(st.data as PodStats, {
+    intro: `Please find below the POD lost weekly report from ${fmtDMY(d.period_from)} to ${fmtDMY(d.period_to)}.`,
+    footer: `Dashboard: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a><br><br>Regards,<br>Trust &amp; Safety`,
+  });
+  // The Excel is only built for the Download button, never attached.
   const xlsx = opts.withAttachment ? await buildWeeklyWorkbook(d, await pendingCases(sb)) : null;
   return { data: d, html, filename, xlsx, subject: weeklySubject(d) };
 }
@@ -59,15 +64,15 @@ export async function buildWeeklyReport(sb: SupabaseClient, opts: { withAttachme
 /** Builds and emails the weekly summary, logged in report_runs. Use a service-role client. */
 export async function sendWeeklyReport(
   sb: SupabaseClient,
-  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; periodKey?: string | null },
+  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; cc?: string[]; periodKey?: string | null },
 ): Promise<{ recipients: string[] }> {
   const cfg = await settings(sb);
   const to = opts.to?.length ? opts.to : cfg.weeklyTo;
-  const cc = opts.to?.length ? [] : cfg.weeklyCc.filter((e) => !to.includes(e));
+  const cc = (opts.to?.length ? opts.cc ?? [] : cfg.weeklyCc).filter((e) => !to.includes(e));
   try {
-    if (!to.length) throw new Error('No weekly report recipients (Settings → Scheduled reports).');
-    const r = await buildWeeklyReport(sb, { withAttachment: true });
-    await sendMail({ to, cc, subject: r.subject, html: r.html, attachments: [{ filename: r.filename, contentType: XLSX, content: r.xlsx! }] });
+    if (!to.length) throw new Error('No weekly report recipients (Reports → Weekly report → To).');
+    const r = await buildWeeklyReport(sb, { withAttachment: false });
+    await sendMail({ to, cc, subject: r.subject, html: r.html });
     await sb.from('report_runs').insert({
       report_type: 'weekly_summary', status: 'sent', recipients: [...to, ...cc], summary: r.data.summary,
       triggered_by: opts.triggeredBy ?? null, trigger_type: opts.trigger, period_key: opts.periodKey ?? null,

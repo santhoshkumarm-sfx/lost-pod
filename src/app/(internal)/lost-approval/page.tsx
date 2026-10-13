@@ -91,7 +91,7 @@ async function RequestView({ sp, f, user }: { sp: Record<string, string | string
     <>
       <PageHeader
         title="Lost approval"
-        sub="Each row is one Lost request: everything a client, the team or a tracker asked for together. Open a request to decide AWB by AWB, or decide whole requests here."
+        actions={<LossDownloads />}
       />
       <Flash sp={sp} />
       <ViewTabs f={f} />
@@ -256,7 +256,7 @@ async function AwbView({ sp, f, user }: { sp: Record<string, string | string[] |
     <>
       <PageHeader
         title="Lost approval"
-        sub="Every AWB waiting for a decision, across all requests. Nothing is Lost until an approver accepts it; Lost aging runs from the escalation date to the approval date."
+        actions={<LossDownloads />}
       />
       <Flash sp={sp} />
       <ViewTabs f={f} />
@@ -421,5 +421,14 @@ async function AwbView({ sp, f, user }: { sp: Record<string, string | string[] |
         {!decided.length && <Empty title="No decisions yet" />}
       </Panel>
     </>
+  );
+}
+
+function LossDownloads() {
+  return (
+    <div className="flex gap-2">
+      <a href="/api/export/loss-accepted?status=pending" className="btn">Loss requested (Excel)</a>
+      <a href="/api/export/loss-accepted" className="btn btn-primary">Loss accepted (Excel)</a>
+    </div>
   );
 }

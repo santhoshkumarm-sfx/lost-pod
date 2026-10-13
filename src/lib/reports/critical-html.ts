@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
-import { AGING_HEX, agingStep, fmtDate, fmtNum } from '../format';
+import { AGING_HEX, agingStep, fmtDate, fmtDMY, fmtNum } from '../format';
+import { todayIn } from '../time';
 
 export interface CriticalRow {
   awb: string; client_display_name: string | null; escalation_date: string; aging_days: number; status_label: string;
@@ -25,8 +26,8 @@ function group(rows: CriticalRow[], key: (r: CriticalRow) => string) {
 
 export function criticalSubject(rows: CriticalRow[], days: number, forAgent?: string): string {
   return forAgent
-    ? `Your critical pending PODs: ${fmtNum(rows.length)} shipment${rows.length === 1 ? '' : 's'} over ${days} days`
-    : `Critical pending POD: ${fmtNum(rows.length)} shipment${rows.length === 1 ? '' : 's'} over ${days} days — ${fmtDate(new Date().toISOString())}`;
+    ? `POD lost critical pending — ${forAgent} — ${fmtDMY(todayIn())}`
+    : `POD lost critical alert ${fmtDMY(todayIn())}`;
 }
 
 export function renderCriticalHtml(rows: CriticalRow[], o: { days: number; siteUrl: string; forAgent?: string; attachmentName?: string | null }): string {

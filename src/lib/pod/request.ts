@@ -67,8 +67,9 @@ export async function checkPodRequest(uploadId: string, awbs: string[], user: Se
   const r = data as { total: number; found: number; request_no: number };
 
   if (user.role === 'client_poc' && r.total > 0) {
-    const [{ data: setting }, { data: cc }, { data: up }, { data: items }] = await Promise.all([
+    const [{ data: setting }, { data: extraTo }, { data: cc }, { data: up }, { data: items }] = await Promise.all([
       admin.from('app_settings').select('value').eq('key', 'pod_request_email').maybeSingle(),
+      admin.from('app_settings').select('value').eq('key', 'pod_request_to').maybeSingle(),
       admin.from('app_settings').select('value').eq('key', 'pod_request_cc').maybeSingle(),
       admin.from('case_uploads').select('client_id, clients(name)').eq('id', uploadId).single(),
       admin.from('pod_request_items').select('awb, result, pod_link, other_links, case_id').eq('upload_id', uploadId),
@@ -81,7 +82,8 @@ export async function checkPodRequest(uploadId: string, awbs: string[], user: Se
       try {
         if (!bridgeConfigured()) throw new Error('Gmail not connected');
         await sendMail({
-          to: [user.email], cc: (Array.isArray(cc?.value) ? (cc!.value as string[]) : []).filter(isEmail),
+          to: [...new Set([user.email, ...(Array.isArray(extraTo?.value) ? (extraTo!.value as string[]) : []).filter(isEmail)])],
+          cc: (Array.isArray(cc?.value) ? (cc!.value as string[]) : []).filter(isEmail),
           subject: `POD request PR-${r.request_no}${clientName ? ` (${clientName})` : ''}: ${r.found} of ${r.total} shared`,
           html: emailHtml(user.full_name ?? user.email, r.request_no, clientName, list, link),
           attachments: [{ filename: `PR-${r.request_no} PODs.xlsx`, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: await podRequestXlsx(r.request_no, clientName, list) }],

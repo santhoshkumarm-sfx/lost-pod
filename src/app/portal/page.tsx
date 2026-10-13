@@ -12,7 +12,7 @@ import { pocRequestLostBulk } from './actions';
 import { getBuckets, getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 
-export const metadata = { title: 'Your escalations' };
+export const metadata = { title: 'POD lost' };
 
 // Columns a client may see. Internal notes live in a separate table the portal cannot read.
 const PORTAL_COLUMNS =
@@ -38,7 +38,6 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
   const rows = (data ?? []) as any[];
   if (statsRes.error) throw new Error(statsRes.error.message);
   const s = statsRes.data as PodStats;
-  const filtered = !!(f.q || f.hub || f.from || f.to);
   const back = `/portal${filtersToQuery(f)}`;
   const href = (o: Record<string, string | number | null>) => `/portal${filtersToQuery(f, o)}`;
   const exportQs = filtersToQuery({ ...f, page: 1 });
@@ -47,8 +46,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1>Your escalations</h1>
-          <p className="mt-1 text-ink-soft">Aging is counted in days from the date you escalated the shipment.</p>
+          <h1>POD lost</h1>
         </div>
         <div className="flex gap-2">
           <a className="btn" href={`/api/export/cases${exportQs ? `${exportQs}&` : '?'}format=csv`}>Download CSV</a>
@@ -63,10 +61,9 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
           : href({ category: k === 'pending' ? 'pending_pod' : k === 'shared' ? 'pod_done' : k, status: null, agemin: null, agemax: null, aging: null, page: 1 })}
       />
       <PivotTable
-        title="Pending POD by days since you escalated"
-        note={`${filtered ? 'Counts follow your search. ' : ''}Over ${s.critical_days} days is critical — these are chased first.`}
+        title="POD pending"
         rowHeader="Client"
-        columns={s.pending_age.map((b) => ({ label: b.max === b.min ? `${b.label} d` : b.label }))}
+        columns={s.pending_age.map((b) => ({ label: /^\d+$/.test(b.label) ? `${b.label} d` : b.label }))}
         hotFrom={Math.max(0, s.pending_age.findIndex((b) => b.min > s.critical_days))}
         rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
           label: c.client,

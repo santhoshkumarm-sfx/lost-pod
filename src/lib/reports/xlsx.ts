@@ -71,7 +71,7 @@ export const CASE_SHEET_COLUMNS = [
 /** The consolidated report attached to the daily email. */
 export async function buildReportWorkbook(data: DailyReportData, cases: CaseExportRow[], agingOrder: 'asc' | 'desc'): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Lost / POD dashboard';
+  wb.creator = 'POD lost';
   wb.created = new Date();
 
   const s = data.summary;
@@ -87,7 +87,7 @@ export async function buildReportWorkbook(data: DailyReportData, cases: CaseExpo
   sheet(wb, 'Client-wise', [
     { header: 'Client', key: 'client', width: 18 }, { header: 'Total', key: 'total' }, { header: 'Open', key: 'open' },
     { header: 'Pending', key: 'pending' }, { header: 'Lost pending approval', key: 'lost_pending', width: 20 }, { header: 'Lost', key: 'lost' },
-    { header: 'POD Shared', key: 'pod_shared' }, { header: 'Aging 0–7', key: 'aging_0_7' }, { header: '8–15', key: 'aging_8_15' },
+    { header: 'POD Shared', key: 'pod_shared' }, { header: 'Aging 1–7', key: 'aging_0_7' }, { header: '8–15', key: 'aging_8_15' },
     { header: '16–30', key: 'aging_16_30' }, { header: '30+', key: 'aging_30_plus' },
   ], data.client_wise);
 

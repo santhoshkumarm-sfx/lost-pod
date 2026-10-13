@@ -45,7 +45,6 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
     <>
       <PageHeader
         title={showRemoved ? 'Removed users' : 'Users'}
-        sub="Logins for the internal team and client POCs. Admins add and remove internal users and client POCs; only a Super Admin manages Super Admins. Every change is in the Audit log."
         actions={<a href={showRemoved ? '/users' : '/users?removed=1'} className="btn btn-ghost">{showRemoved ? 'Back to users' : 'Show removed users'}</a>}
       />
       <Flash sp={sp} />

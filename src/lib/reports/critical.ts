@@ -4,7 +4,6 @@ import { publicEnv } from '../env';
 import { sendMail } from '../google';
 import { buildCriticalWorkbook, criticalSubject, renderCriticalHtml, type CriticalRow } from './critical-html';
 
-const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 async function cfg(sb: SupabaseClient) {
   const { data } = await sb.from('app_settings').select('key, value')
@@ -45,15 +44,15 @@ export async function buildCriticalAlert(sb: SupabaseClient, opts: { withAttachm
 /** Daily critical-aging email to the configured list, plus (optionally) one email per agent with their own critical shipments. */
 export async function sendCriticalAlert(
   sb: SupabaseClient,
-  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; periodKey?: string | null },
+  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; cc?: string[]; periodKey?: string | null },
 ): Promise<{ recipients: string[]; agents: number; critical: number }> {
   let recipients: string[] = opts.to ?? [];
   try {
-    const r = await buildCriticalAlert(sb, { withAttachment: true });
+    const r = await buildCriticalAlert(sb, { withAttachment: false });
     recipients = opts.to?.length ? opts.to : r.cfg.to;
-    if (!recipients.length) throw new Error('No critical-alert recipients (Settings → Scheduled reports).');
-    const cc = opts.to?.length ? [] : r.cfg.cc.filter((e) => !recipients.includes(e));
-    await sendMail({ to: recipients, cc, subject: r.subject, html: r.html, attachments: [{ filename: r.filename, contentType: XLSX, content: r.xlsx! }] });
+    if (!recipients.length) throw new Error('No critical-alert recipients (Reports → Critical alert → To).');
+    const cc = (opts.to?.length ? opts.cc ?? [] : r.cfg.cc).filter((e) => !recipients.includes(e));
+    await sendMail({ to: recipients, cc, subject: r.subject, html: r.html });
     let agents = 0;
     if (r.cfg.toAgents && !opts.to?.length) {
       const byAgent = new Map<string, CriticalRow[]>();

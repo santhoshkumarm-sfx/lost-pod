@@ -6,7 +6,8 @@ import { param, type SearchParams } from '@/lib/flash';
 import { fmtDateTime } from '@/lib/format';
 import { googleStatus } from '@/lib/google';
 import { createClient } from '@/lib/supabase/server';
-import { sendCriticalNow, sendReportNow, sendWeeklyNow } from './actions';
+import { saveRecipients, sendNow } from './actions';
+import { RECIPIENT_KEYS, RECIPIENT_LABELS, type RecipientKind } from '@/lib/reports/recipients';
 
 export const metadata = { title: 'Reports' };
 export const maxDuration = 120;
@@ -17,7 +18,9 @@ const hh = (h: unknown) => `${String(Number(h) || 0).padStart(2, '0')}:00 IST`;
 export default async function ReportsPage({ searchParams }: { searchParams: SearchParams }) {
   const me = await requireAdmin();
   const sp = await searchParams;
-  const kind = param(sp, 'r') === 'weekly' ? 'weekly' : param(sp, 'r') === 'critical' ? 'critical' : 'daily';
+  const r = param(sp, 'r');
+  if (r === 'other') return <OtherEmails me={me} sp={sp} />;
+  const kind = r === 'weekly' ? 'weekly' : r === 'critical' ? 'critical' : 'daily';
   const weekly = kind === 'weekly';
   const supabase = await createClient();
   const [runs, settingsRes] = await Promise.all([
@@ -29,32 +32,29 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
   const schedule = kind === 'critical'
     ? get('critical_alert_enabled') === false
       ? 'Critical alert is switched off.'
-      : `Sent every day at ${hh(get('critical_alert_hour') ?? 9)} to ${list('critical_alert_email_to') || 'nobody yet'}${list('critical_alert_email_cc') ? `, CC ${list('critical_alert_email_cc')}` : ''}${get('critical_alert_to_agents') === false ? '' : ', and each agent gets their own list'}. Critical = pending POD over ${Number(get('critical_aging_days') ?? 7)} days.`
+      : `Sent daily at ${hh(get('critical_alert_hour') ?? 9)}.`
     : weekly
     ? get('weekly_report_enabled') === false
-      ? 'Weekly summary is switched off.'
-      : `Sent every ${DAYS[Number(get('weekly_report_day') ?? 1)] ?? 'Monday'} at ${hh(get('weekly_report_hour') ?? 9)} to ${list('weekly_report_recipients') || 'nobody yet'}${list('weekly_report_cc') ? `, CC ${list('weekly_report_cc')}` : ''}.`
+      ? 'Weekly report is switched off.'
+      : `Sent every ${DAYS[Number(get('weekly_report_day') ?? 1)] ?? 'Monday'} at ${hh(get('weekly_report_hour') ?? 9)}.`
     : get('daily_report_enabled') === false
       ? 'Daily report is switched off.'
-      : `Sent every day at ${hh(get('daily_report_hour') ?? 9)} to ${list('report_recipients') || 'nobody yet'}${list('report_cc') ? `, CC ${list('report_cc')}` : ''}.`;
+      : `Sent daily at ${hh(get('daily_report_hour') ?? 9)}.`;
   const g = googleStatus();
   const type = kind === 'critical' ? 'critical_alert' : weekly ? 'weekly_summary' : 'daily_admin';
-  const label = kind === 'critical' ? 'critical alert' : weekly ? 'weekly summary' : 'daily report';
+  const label = kind === 'critical' ? 'critical alert' : weekly ? 'weekly report' : 'daily report';
+  const [toKey, ccKey] = RECIPIENT_KEYS[kind];
   const history = (runs.data ?? []).filter((r) => (r.report_type ?? 'daily_admin') === type);
 
   return (
     <>
       <PageHeader
         title="Reports"
-        sub={`${schedule} ${me.role === 'super_admin' ? 'Change it under Settings → Scheduled reports.' : 'A Super Admin can change the schedule and recipients.'}`}
+        sub={schedule}
         actions={<a href={`/reports/download?r=${kind}`} className="btn">Download Excel</a>}
       />
       <Flash sp={sp} />
-      <div className="mb-4 flex gap-1 border-b border-line">
-        <Link href="/reports?r=critical" className={`-mb-px border-b-2 px-4 py-2 no-underline ${kind === 'critical' ? 'border-signal font-semibold text-ink' : 'border-transparent text-ink-soft'}`}>Critical alert (daily)</Link>
-        <Link href="/reports" className={`-mb-px border-b-2 px-4 py-2 no-underline ${kind === 'daily' ? 'border-signal font-semibold text-ink' : 'border-transparent text-ink-soft'}`}>Daily report</Link>
-        <Link href="/reports?r=weekly" className={`-mb-px border-b-2 px-4 py-2 no-underline ${weekly ? 'border-signal font-semibold text-ink' : 'border-transparent text-ink-soft'}`}>Weekly summary</Link>
-      </div>
+      <ReportTabs kind={kind} />
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <Panel title={`Preview of the ${label}`} bodyClass="p-0">
           <iframe src={`/reports/preview?r=${kind}`} title="Report preview" className="h-[75vh] w-full rounded-b-md border-0 bg-white" />
@@ -62,10 +62,17 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
         <div className="space-y-5">
           <Panel title="Send now">
             {!g.gmail && <p className="mb-3 text-age-4">Gmail is not connected, so reports cannot be sent yet.</p>}
-            <form action={kind === 'critical' ? sendCriticalNow : weekly ? sendWeeklyNow : sendReportNow} className="space-y-3">
-              <Field label="Recipients" hint="Empty = the usual To and CC lists">
-                <input name="to" className="input" placeholder="Leave empty for the usual list" />
+            <form action={sendNow} className="space-y-3">
+              <input type="hidden" name="kind" value={kind} />
+              <Field label="To">
+                <textarea name="to" rows={2} className="input" defaultValue={list(toKey)} placeholder="name@shadowfax.in, …" />
               </Field>
+              <Field label="CC">
+                <textarea name="cc" rows={2} className="input" defaultValue={list(ccKey)} placeholder="name@shadowfax.in, …" />
+              </Field>
+              {me.role === 'super_admin' && (
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="save" value="1" /> Save as the usual To / CC</label>
+              )}
               <SubmitButton cancel pending="Building and sending…" disabled={!g.gmail} confirm={`Send the ${label} now?`}>
                 Send {label}
               </SubmitButton>
@@ -98,6 +105,66 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
           </Panel>
         </div>
       </div>
+    </>
+  );
+}
+
+function ReportTabs({ kind }: { kind: string }) {
+  const tab = (href: string, k: string, text: string) => (
+    <Link href={href} className={`-mb-px border-b-2 px-4 py-2 no-underline ${kind === k ? 'border-signal font-semibold text-ink' : 'border-transparent text-ink-soft'}`}>{text}</Link>
+  );
+  return (
+    <div className="mb-4 flex gap-1 border-b border-line">
+      {tab('/reports?r=critical', 'critical', 'Critical alert')}
+      {tab('/reports', 'daily', 'Daily report')}
+      {tab('/reports?r=weekly', 'weekly', 'Weekly report')}
+      {tab('/reports?r=other', 'other', 'Other emails — To / CC')}
+    </div>
+  );
+}
+
+const OTHER: RecipientKind[] = ['lost_request', 'loss_accepted', 'lost_decision', 'pod_request'];
+const OTHER_NOTE: Partial<Record<RecipientKind, string>> = {
+  lost_request: 'Also to the approvers of that client.',
+  loss_accepted: 'The person who asked is always copied.',
+  lost_decision: 'The person who asked is always copied.',
+  pod_request: 'Always to the client who asked.',
+};
+
+async function OtherEmails({ me, sp }: { me: { role: string }; sp: Awaited<SearchParams> }) {
+  const supabase = await createClient();
+  const keys = OTHER.flatMap((k) => [...RECIPIENT_KEYS[k]]);
+  const { data } = await supabase.from('app_settings').select('key, value').in('key', keys);
+  const list = (k: string) => ((data?.find((r) => r.key === k)?.value ?? []) as string[]).join(', ');
+  const edit = me.role === 'super_admin';
+  return (
+    <>
+      <PageHeader title="Reports" />
+      <Flash sp={sp} />
+      <ReportTabs kind="other" />
+      <Panel title="To / CC" bodyClass="tbl-wrap">
+        <form action={saveRecipients}>
+          <table className="tbl w-full table-fixed">
+            <colgroup><col style={{ width: 230 }} /><col /><col /></colgroup>
+            <thead><tr><th>Email</th><th>To</th><th>CC</th></tr></thead>
+            <tbody>
+              {OTHER.map((k) => {
+                const [to, cc] = RECIPIENT_KEYS[k];
+                return (
+                  <tr key={k}>
+                    <td className="align-top"><div className="font-medium">{RECIPIENT_LABELS[k]}</div>{OTHER_NOTE[k] && <div className="text-xs text-ink-soft">{OTHER_NOTE[k]}</div>}</td>
+                    <td><textarea name={to} rows={2} className="input" defaultValue={list(to)} disabled={!edit} /></td>
+                    <td><textarea name={cc} rows={2} className="input" defaultValue={list(cc)} disabled={!edit} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {edit
+            ? <div className="p-3"><SubmitButton cancel pending="Saving…">Save To / CC</SubmitButton></div>
+            : <p className="p-3 text-ink-soft">Only a Super Admin can change these.</p>}
+        </form>
+      </Panel>
     </>
   );
 }

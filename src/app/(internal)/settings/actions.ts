@@ -137,7 +137,7 @@ export async function saveBuckets(fd: FormData) {
     });
     for (let i = 1; i < rows.length; i++) {
       const prev = rows[i - 1];
-      if (prev.max_days === null || rows[i].min_days !== prev.max_days + 1) throw new Error('Buckets must follow on without gaps (e.g. 0–2, 3–7, 8–15).');
+      if (prev.max_days === null || rows[i].min_days !== prev.max_days + 1) throw new Error('Buckets must follow on without gaps (e.g. 1–2, 3–7, 8–15).');
     }
     if (rows[0]?.min_days !== 0 || rows[rows.length - 1].max_days !== null) throw new Error('Start at 0 and end with an open bucket like 90+.');
     must(await sb.from('aging_buckets').delete().gte('id', 0).select('id'));

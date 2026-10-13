@@ -23,7 +23,6 @@ export default async function PodRequests({ searchParams }: { searchParams: Sear
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1>Requested PODs</h1>
-          <p className="mt-1 text-ink-soft">Your POD requests. Open one to see the PODs found (with links and an Excel) and which are still being worked on.</p>
         </div>
         <a href="/portal/new" className="btn btn-primary">Request POD</a>
       </div>

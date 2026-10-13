@@ -28,7 +28,6 @@ export default async function PocsPage({ searchParams }: { searchParams: SearchP
     <>
       <PageHeader
         title="Client POCs"
-        sub="Contacts on the client side. A POC with a portal login sees only their own client’s cases and can request Lost for approval."
       />
       <Flash sp={sp} />
       <form className="mb-3 flex items-end gap-2">

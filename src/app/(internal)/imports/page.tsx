@@ -40,7 +40,6 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
     <>
       <PageHeader
         title="Google Sheet imports"
-        sub="Trackers are read on a schedule (every 30 minutes) and on demand. Sheets are only an input: every row is normalised into the case database, and tracker AGEING columns are ignored."
         actions={
           <form action={syncNow}>
             <SubmitButton pending="Syncing… this can take a few minutes" disabled={!g.sheets}>Sync all active tabs</SubmitButton>

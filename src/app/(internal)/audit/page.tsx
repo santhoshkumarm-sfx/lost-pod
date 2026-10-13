@@ -119,7 +119,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Search
   };
   return (
     <>
-      <PageHeader title="Audit log" sub="Every change to cases, approvals, users and configuration, with who made it and from where." />
+      <PageHeader title="Audit log" />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {tabs.map((t) => (
           <Link key={t.key} href={`/audit?view=${t.key}`} className={`btn btn-sm ${view === t.key ? 'border-ink bg-ink text-white hover:bg-ink' : ''}`}>{t.label}</Link>

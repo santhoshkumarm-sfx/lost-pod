@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { APP_VERSION } from '@/lib/version';
 
 export interface NavItem {
   href: string;
@@ -20,7 +21,7 @@ export function Sidebar({ groups, footer }: { groups: { title?: string; items: N
     <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col bg-night text-night-text">
       <div className="px-4 pb-4 pt-5">
         <Link href="/" className="block text-[15px] font-semibold leading-tight text-white no-underline hover:no-underline">
-          Lost &amp; POD desk
+          POD lost
         </Link>
         <div className="mt-0.5 text-xs text-night-text/70">Trust &amp; Safety</div>
       </div>
@@ -43,7 +44,7 @@ export function Sidebar({ groups, footer }: { groups: { title?: string; items: N
           </div>
         ))}
       </nav>
-      <div className="border-t border-night-2 px-4 py-3 text-xs">{footer}</div>
+      <div className="border-t border-night-2 px-4 py-3 text-xs">{footer}<div className="mt-1 text-2xs text-night-text/50">Version {APP_VERSION}</div></div>
     </aside>
   );
 }

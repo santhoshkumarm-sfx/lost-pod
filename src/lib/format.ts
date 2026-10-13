@@ -59,3 +59,9 @@ export function clientStatusLabel(category: string | null | undefined, label: st
   if (category === 'lost_pending') return 'Loss requested — under review';
   return label;
 }
+
+/** 2026-10-13 → 13/10/2026 (email subjects). */
+export function fmtDMY(v: string | null | undefined): string {
+  const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v ?? '');
+}

@@ -30,7 +30,6 @@ export default async function PortalNew({ searchParams }: { searchParams: Search
     <>
       <div className="mb-5">
         <h1>Request POD</h1>
-        <p className="mt-1 text-ink-soft">Type the AWBs, or upload many at once with the Excel template. As soon as you submit, every AWB is checked against the Shadowfax POD records: the PODs found are shared here and in one email; the rest become pending shipments that our team works on.</p>
       </div>
       <Flash sp={sp} />
       {current.data && <UploadResult u={current.data as unknown as UploadLog} casesHref="/portal?category=pending_pod&sort=updated_at&dir=desc" items={(podItems.data ?? []) as PodItemRow[]} caseHref={(id) => `/portal/cases/${id}`} />}

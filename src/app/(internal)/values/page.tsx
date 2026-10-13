@@ -34,7 +34,6 @@ export default async function ValuesPage({ searchParams }: { searchParams: Searc
     <>
       <PageHeader
         title="Product value and OTP delivered"
-        sub="Stored once per AWB and shown on every case, list, dashboard and export with that AWB. A value set here wins over a value in a tracker."
       />
       <Flash sp={sp} />
       <div className="mb-5 grid gap-3 sm:grid-cols-3">

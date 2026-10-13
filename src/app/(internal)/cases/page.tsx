@@ -41,7 +41,6 @@ export default async function CasesPage({ searchParams }: { searchParams: Search
     <>
       <PageHeader
         title="Cases"
-        sub="One row per escalated AWB, from Google Sheets, email and manual entry."
         actions={
           <>
             <a className="btn" href={`/api/export/cases${exportQs ? exportQs + '&' : '?'}format=csv`}>Export CSV</a>

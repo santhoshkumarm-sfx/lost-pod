@@ -35,7 +35,6 @@ export default async function EmailsPage({ searchParams }: { searchParams: Searc
     <>
       <PageHeader
         title="Email escalations"
-        sub="Find a client escalation in Gmail by its subject, check what was read from it, and create one case per AWB."
         actions={
           <>
             <Link href="/email-escalations/new?mode=paste" className="btn">Paste an email</Link>

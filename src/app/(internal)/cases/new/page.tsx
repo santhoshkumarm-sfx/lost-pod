@@ -20,7 +20,6 @@ export default async function NewCasePage({ searchParams }: { searchParams: Sear
     <>
       <PageHeader
         title="Add case"
-        sub="For escalations that arrive by phone, chat or any channel without a tracker row or email. One case is created per AWB."
         actions={<a href="/cases/upload" className="btn">Upload many from Excel</a>}
       />
       <Flash sp={sp} />

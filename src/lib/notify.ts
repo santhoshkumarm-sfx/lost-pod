@@ -117,7 +117,7 @@ export async function emailNewLostRequests(): Promise<void> {
         await sendMail({
           to: toList,
           cc: ccList,
-          subject: `Lost request LR-${r.request_number} · ${client} · ${cases.length} AWB${cases.length === 1 ? '' : 's'} — approval needed`,
+          subject: `POD lost requested by ${client}`,
           html: `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1B2330">
 <p><strong>${esc(who)}</strong> ${r.requested_via === 'google_sheet' ? 'marked' : `asked via ${esc(VIA[r.requested_via] ?? r.requested_via)} to accept the loss of`} ${cases.length === 1 ? 'this shipment' : `these ${cases.length} shipments`}${r.requested_via === 'google_sheet' ? ' as Lost' : ''} for <strong>${esc(client)}</strong>.</p>
 <p><strong>Request:</strong> LR-${r.request_number} · ${fmtDateTime(r.created_at)} IST<br><strong>Reason:</strong> ${esc(r.reason ?? '—')}<br>${esc(agingLine(cases))}</p>
@@ -152,7 +152,7 @@ async function sheetDigest(sb: SupabaseClient, reqs: RequestRow[], to: string[],
     await sendMail({
       to: toList,
       cc: uniq(cc).filter((e) => !toList.includes(e)),
-      subject: `Trackers marked ${awbs} shipment${awbs === 1 ? '' : 's'} Lost — ${lines.length} request${lines.length === 1 ? '' : 's'} waiting for approval`,
+      subject: `POD lost requested by ${[...new Set(lines.map((l) => l.client))].join(', ')}`,
       html: `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1B2330">
 <p>The latest Google Sheet sync found <strong>${awbs}</strong> shipment${awbs === 1 ? '' : 's'} marked Lost in client trackers. Each tab became one Lost request. Nothing is Lost until an approver accepts it.</p>
 <table cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>${th('Request')}${th('Client')}${th('Tracker tab / reason')}${th('AWBs')}${th('Oldest aging')}</tr>
@@ -203,7 +203,7 @@ export async function emailLostDecision(approvalIds: string[], decision: string,
       await sendMail({
         to: toList.length ? toList : ccList,
         cc: toList.length ? ccList : [],
-        subject: `${verb} · ${ref} · ${client} · ${cases.length} AWB${cases.length === 1 ? '' : 's'}`,
+        subject: `POD lost ${accepted ? 'accepted' : decision === 'rejected' ? 'rejected' : 'sent back'} by ${decidedBy}`,
         html: `<div style="font-family:Segoe UI,Arial,sans-serif;color:#1B2330">
 <p><strong>${esc(decidedBy)}</strong> — ${esc(verb.toLowerCase())} for ${cases.length === 1 ? 'this shipment' : `${cases.length} shipments`} of <strong>${esc(client)}</strong>${num ? ` (request LR-${num})` : ''} on ${fmtDateTime(items[0].decided_at ?? new Date().toISOString())} IST.</p>
 ${note ? `<p><strong>Note:</strong> ${esc(note)}</p>` : ''}

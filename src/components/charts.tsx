@@ -13,7 +13,7 @@ export function HBarChart({ data, color = '#1F5FBF', colors, height }: {
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
         <CartesianGrid horizontal={false} stroke="#E6E8E3" />
         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: INK }} axisLine={false} tickLine={false} />
-        <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12, fill: INK }} axisLine={false} tickLine={false} />
+        <YAxis type="category" dataKey="name" width={150} interval={0} tick={{ fontSize: 12, fill: INK }} axisLine={false} tickLine={false} />
         <Tooltip cursor={{ fill: '#F3F4F1' }} contentStyle={{ fontSize: 12, borderRadius: 4, borderColor: '#DCDFD8' }} />
         <Bar dataKey="value" name="Cases" isAnimationActive={false} radius={[0, 2, 2, 0]} barSize={16}>
           {data.map((_, i) => (

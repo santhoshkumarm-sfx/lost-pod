@@ -164,9 +164,10 @@ left join public.awb_values av on av.awb = c.awb
 left join public.profiles ag on ag.id = c.assigned_agent
 left join public.client_pocs poc on poc.id = c.client_poc_id
 cross join lateral (
-  select greatest(cfg.today - c.escalation_date, 0) as current_aging_days,
+  -- Day 0 is shown as 1: the data comes in the next day, so there is no "0 days".
+  select greatest(cfg.today - c.escalation_date, 1) as current_aging_days,
          case when sm.category in ('closed', 'lost') and c.final_aging_days is not null
-              then c.final_aging_days else greatest(cfg.today - c.escalation_date, 0) end as aging_days
+              then greatest(c.final_aging_days, 1) else greatest(cfg.today - c.escalation_date, 1) end as aging_days
 ) a
 left join buckets b on a.aging_days >= b.min_days and (b.max_days is null or a.aging_days <= b.max_days)
 where not c.is_deleted;
@@ -885,12 +886,13 @@ returns jsonb language sql stable security invoker set search_path = public as $
     from public.cases_filtered(p - 'category' - 'status' - 'agemin' - 'agemax' - 'aging')
   ),
   k as (select public.critical_days() as d, public.app_today() as today),
-  -- Age columns of the pending-POD pivot: 0 … 7 days one by one, then 8–10, 11–20, 21–30, 31–60, 61–90, 90+.
+  -- Age columns of the pending-POD pivot: 1 … 7 days one by one (day 0 counts as 1: data comes in the next day),
+  -- then 8–10, 11–20, 21–30, 31–60, 61–90, 90+.
   b as (
-    select n, (n - 1)::text as label, n - 1 as lo, n - 1 as hi from generate_series(1, 8) n
+    select n, n::text as label, case when n = 1 then 0 else n end as lo, n as hi from generate_series(1, 7) n
     union all
-    select * from (values (9, '8–10', 8, 10), (10, '11–20', 11, 20), (11, '21–30', 21, 30),
-                          (12, '31–60', 31, 60), (13, '61–90', 61, 90), (14, '90+', 91, null)) as bb(n, label, lo, hi)
+    select * from (values (8, '8–10', 8, 10), (9, '11–20', 11, 20), (10, '21–30', 21, 30),
+                          (11, '31–60', 31, 60), (12, '61–90', 61, 90), (13, '90+', 91, null)) as bb(n, label, lo, hi)
   ),
   pb as materialized (   -- pending POD with its age column
     select base.*, b.n from base join b on base.aging_days between b.lo and coalesce(b.hi, 100000) where base.pending
@@ -950,13 +952,22 @@ returns jsonb language sql stable security invoker set search_path = public as $
                (select jsonb_agg(coalesce(x.val, 0) order by b.n) from b left join pa x on x.n = b.n
                   and x.assigned_agent is not distinct from pb.assigned_agent and x.agent = pb.agent) as age_value
         from pb group by pb.assigned_agent, pb.agent) g), '[]'::jsonb),
-    -- Top 20 hubs by pending-POD product value (then AWBs).
+    -- Accepted loss per agent (AWBs and product value), loss still waiting for approval next to it.
+    'agent_loss', coalesce((select jsonb_agg(g order by g.lost_value desc, g.lost desc, g.agent) from (
+        select assigned_agent as agent_id, agent,
+               count(*) filter (where status_category = 'lost') as lost,
+               coalesce(sum(value) filter (where status_category = 'lost'), 0) as lost_value,
+               count(*) filter (where status_category = 'lost_pending') as lost_pending,
+               coalesce(sum(value) filter (where status_category = 'lost_pending'), 0) as lost_pending_value
+        from base where status_category in ('lost', 'lost_pending') group by assigned_agent, agent
+        having count(*) filter (where status_category = 'lost') > 0) g), '[]'::jsonb),
+    -- Top 15 hubs by pending-POD product value (then AWBs).
     'by_hub', coalesce((select jsonb_agg(h order by h.pending_value desc, h.pending desc, h.hub) from (
         select pb.hub_name as hub, max(pb.city) as city, count(*) as pending, coalesce(sum(value), 0) as pending_value,
                count(*) filter (where aging_days > (select d from k)) as critical,
                (select jsonb_agg(coalesce(x.cnt, 0) order by b.n) from b left join ph x on x.n = b.n and x.hub_name = pb.hub_name) as age,
                (select jsonb_agg(coalesce(x.val, 0) order by b.n) from b left join ph x on x.n = b.n and x.hub_name = pb.hub_name) as age_value
-        from pb where pb.hub_name <> 'No hub' group by pb.hub_name order by coalesce(sum(value), 0) desc, count(*) desc limit 20) h), '[]'::jsonb),
+        from pb where pb.hub_name <> 'No hub' group by pb.hub_name order by coalesce(sum(value), 0) desc, count(*) desc limit 15) h), '[]'::jsonb),
     -- Top 15 hubs by accepted loss (product value), with loss requested next to it.
     'hub_loss', coalesce((select jsonb_agg(h order by h.lost_value desc, h.lost desc, h.hub) from (
         select hub_name as hub, max(city) as city,
@@ -1173,7 +1184,9 @@ begin
         end if;
       end if;
 
-      -- Agent named in the tracker -> internal user (full name or first name)
+      -- Agent named in the tracker -> internal user (full name or first name).
+      -- Notes typed into the agent column ("avl in pg 2") are not names: ignore them.
+      if trim(r ->> 'agent_name') ~ '\d' then r := r || '{"agent_name": ""}'::jsonb; end if;
       v_agent := null;
       if nullif(trim(r ->> 'agent_name'), '') is not null then
         select id into v_agent from public.profiles
@@ -1815,3 +1828,15 @@ create policy agent_clients_write on public.agent_clients for all to authenticat
 drop trigger if exists audit_agent_clients on public.agent_clients;
 create trigger audit_agent_clients after insert or update or delete on public.agent_clients
   for each row execute function public.audit_row();
+
+-- Clean-up: tracker notes stored as agent names (anything with a digit, e.g. "avl in pg 2").
+update public.cases set assigned_agent_name = null where assigned_agent_name ~ '\d';
+
+-- No "0 days" anywhere: the first aging bucket reads 1–2.
+update public.aging_buckets set label = '1–2' where label = '0–2' and min_days = 0;
+
+-- To / CC for every email (Reports page).
+insert into public.app_settings (key, value, description) values
+  ('pod_request_to', '[]', 'POD request email: also sent To these addresses (the client who asked is always included)'),
+  ('pod_request_cc', '[]', 'POD request email: CC')
+on conflict (key) do nothing;

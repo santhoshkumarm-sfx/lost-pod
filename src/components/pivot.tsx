@@ -8,7 +8,7 @@ export interface PivotRow { label: string; href?: string; cells: { value: number
  * Excel-style pivot table: row labels down the side, columns across, Grand Total row and column.
  * Zeros are left blank, like a pivot table; every number links to the matching list of cases.
  */
-export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, noTotalCol, formats, keepOrder, variant = 'count' }: {
+export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnHref, note, notInTotal = [], format = fmtNum, hotFrom, noTotalCol, formats, keepOrder, noTotalRow, variant = 'count' }: {
   title: string;
   rowHeader: string;
   columns: PivotColumn[];
@@ -30,6 +30,8 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
   formats?: ((v: number) => string)[];
   /** Keep the given row order (default: largest Grand Total first). */
   keepOrder?: boolean;
+  /** Leave out the Grand Total row (when the rows are different things). */
+  noTotalRow?: boolean;
 }) {
   const sum = (vals: number[]) => vals.reduce((t, v, i) => t + (notInTotal.includes(i) ? 0 : v), 0);
   // Largest to smallest, like a sorted pivot table.
@@ -87,7 +89,7 @@ export function PivotTable({ title, rowHeader, columns, rows, totalHref, columnH
               <tr><td colSpan={columns.length + (noTotalCol ? 1 : 2)} className="border border-[#DCDFD8] px-3 py-4 text-center text-ink-soft">No data for these filters.</td></tr>
             )}
           </tbody>
-          {rows.length > 0 && (
+          {rows.length > 0 && !noTotalRow && (
             <tfoot>
               <tr>
                 <td className={`${foot} px-3 text-left`}>Grand Total</td>

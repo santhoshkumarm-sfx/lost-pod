@@ -25,7 +25,7 @@ export default async function DataQualityPage() {
   const d = data as DQ;
   return (
     <>
-      <PageHeader title="Data quality" sub="Things the importers could not settle on their own. Fixing them makes aging and reports more accurate." />
+      <PageHeader title="Data quality" />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Kpi label="Escalation date estimated" value={d.estimated_escalation_date} tone={d.estimated_escalation_date ? 'warn' : undefined} />
         <Kpi label="No client" value={d.missing_client} href="/cases?client=none&category=all" tone={d.missing_client ? 'warn' : undefined} />

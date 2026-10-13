@@ -2,9 +2,10 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { publicEnv } from '../env';
 import { sendMail } from '../google';
-import { fmtDate } from '../format';
+import { fmtDMY } from '../format';
+import { todayIn } from '../time';
 import type { PodStats } from '../cases/filters';
-import { statsEmailHtml, type Yesterday } from './pivot-html';
+import { statsEmailHtml } from './pivot-html';
 import { CASE_EXPORT_COLUMNS, type CaseExportRow, type DailyReportData } from './types';
 import { buildReportWorkbook } from './xlsx';
 
@@ -46,47 +47,39 @@ export interface BuiltReport {
 
 /**
  * Everything is computed from the consolidated database when the report is built. The body has the dashboard
- * tables (AWBs and ₹ value) plus what happened yesterday; every case is in the attached Excel.
+ * tables (₹ product value, then AWBs). The Excel is only built for the Download button, never attached.
  */
 export async function buildDailyReport(sb: SupabaseClient, opts: { withAttachment: boolean }): Promise<BuiltReport> {
   const settings = await reportSettings(sb);
-  const [rep, st, yd] = await Promise.all([
+  const [rep, st] = await Promise.all([
     sb.rpc('daily_report_data', { p_lost_days: settings.lostDays }),
     sb.rpc('pod_stats', { p: {} }),
-    sb.rpc('report_yesterday'),
   ]);
-  for (const r of [rep, st, yd]) if (r.error) throw new Error(r.error.message);
+  for (const r of [rep, st]) if (r.error) throw new Error(r.error.message);
   const report = rep.data as DailyReportData;
   const s = st.data as PodStats;
-  const y = yd.data as Yesterday;
-  const filename = `lost-pod-report-${report.report_date}.xlsx`;
-  const html = statsEmailHtml(s, y, {
-    intro: 'Please find below the Lost &amp; POD report. The base data is attached to this email.',
-    footer: `${opts.withAttachment ? `Every case is in the attached Excel (${filename}). ` : ''}Open the dashboard for the lists: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a>`,
-    agents: true,
+  const today = fmtDMY(todayIn());
+  const filename = `pod-lost-report-${report.report_date}.xlsx`;
+  const html = statsEmailHtml(s, {
+    intro: `Please find below the POD lost daily report as on ${today}.`,
+    footer: `Dashboard: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a><br><br>Regards,<br>Trust &amp; Safety`,
   });
   const xlsx = opts.withAttachment ? await buildReportWorkbook(report, await fetchAllCases(sb), settings.agingOrder) : null;
-  return {
-    data: report, html, filename, xlsx, recipients: settings.recipients, cc: settings.cc,
-    subject: `Lost / POD daily report — ${fmtDate(y.day)} — ${s.pending} pending POD (${s.critical} critical), ${s.lost_pending} loss requested`,
-  };
+  return { data: report, html, filename, xlsx, recipients: settings.recipients, cc: settings.cc, subject: `POD lost daily report ${today}` };
 }
 
 /** Builds and emails the report, and logs the run in report_runs. Use a service-role client. */
 export async function sendDailyReport(
   sb: SupabaseClient,
-  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; periodKey?: string | null },
+  opts: { trigger: 'cron' | 'manual' | 'cli'; triggeredBy?: string | null; to?: string[]; cc?: string[]; periodKey?: string | null },
 ): Promise<{ recipients: string[]; messageId: string | null }> {
   let recipients: string[] = opts.to ?? [];
   try {
-    const r = await buildDailyReport(sb, { withAttachment: true });
+    const r = await buildDailyReport(sb, { withAttachment: false });
     recipients = opts.to?.length ? opts.to : r.recipients;
-    if (!recipients.length) throw new Error('No report recipients configured (Settings → report_recipients).');
-    const cc = opts.to?.length ? [] : r.cc.filter((e) => !recipients.includes(e));
-    const messageId = await sendMail({
-      to: recipients, cc, subject: r.subject, html: r.html,
-      attachments: [{ filename: r.filename, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: r.xlsx! }],
-    });
+    if (!recipients.length) throw new Error('No report recipients (Reports → Daily report → To).');
+    const cc = (opts.to?.length ? opts.cc ?? [] : r.cc).filter((e) => !recipients.includes(e));
+    const messageId = await sendMail({ to: recipients, cc, subject: r.subject, html: r.html });
     await sb.from('report_runs').insert({
       report_type: 'daily_admin', status: 'sent', recipients: [...recipients, ...cc], summary: r.data.summary,
       triggered_by: opts.triggeredBy ?? null, trigger_type: opts.trigger, period_key: opts.periodKey ?? null,

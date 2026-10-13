@@ -124,7 +124,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Sea
   const general = all.filter((s) => !special.has(s.key)).map((s) => s.key);
   return (
     <>
-      <PageHeader title="Settings" sub="Everything here takes effect without a deploy. Secrets (Supabase and Google keys) are environment variables, not settings." />
+      <PageHeader title="Settings" />
       <Flash sp={sp} />
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-5">

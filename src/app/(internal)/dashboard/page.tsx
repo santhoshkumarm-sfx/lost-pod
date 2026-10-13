@@ -5,25 +5,18 @@ import { CaseFilterForm } from '@/components/CaseFilterForm';
 import { applyCaseFilters, filtersToQuery, parseCaseFilters, statsFilter as toStats, type PodStats } from '@/lib/cases/filters';
 import { PodTiles } from '@/components/pod';
 import { PivotTable } from '@/components/pivot';
+import { reportRows } from '@/lib/reports/pivot-html';
 import { requireInternal } from '@/lib/auth';
 import type { SearchParams } from '@/lib/flash';
-import { getAgents, getBuckets, getClients, getPocs, getStatuses } from '@/lib/lookups';
-import { fmtNum, SOURCE_LABELS } from '@/lib/format';
+import { getAgents, getClients, getPocs } from '@/lib/lookups';
+import { fmtInr, fmtNum, SOURCE_LABELS } from '@/lib/format';
 import { createClient } from '@/lib/supabase/server';
 import type { CaseRow } from '@/lib/types';
 
-export const metadata = { title: 'Dashboard' };
+export const metadata = { title: 'POD lost' };
 
-interface Stats {
-  total: number;
-  open: number;
-  sla_breached: number;
-  new_today: number;
+interface StatusStats {
   by_status: { code: string; label: string; category: string; color: string; count: number }[];
-  by_aging: { label: string; count: number }[];
-  by_client: { client: string; client_id: string | null; total: number; open: number; pending: number; lost_pending: number; lost: number; pod_shared: number; sla_breached: number }[];
-  by_hub: { hub: string; open: number; sla_breached: number }[];
-  by_agent: { agent: string; open: number; sla_breached: number; avg_aging: number }[];
   by_source: { source: string; total: number; open: number }[];
 }
 
@@ -31,42 +24,94 @@ const STATUS_HEX: Record<string, string> = {
   slate: '#7B8594', blue: '#1F5FBF', indigo: '#4B49B5', violet: '#7A4FB0', teal: '#2C8C83', amber: '#D98A2B', red: '#A9402B', green: '#3E8A46',
 };
 
+/** A plain table with a label column and equal-width number columns, numbers right-aligned. */
+function NumTable({ head, rows, labelWidth = 180, empty }: {
+  head: string[];
+  rows: { key: string; label: React.ReactNode; cells: { v: React.ReactNode; strong?: boolean; hot?: boolean }[] }[];
+  labelWidth?: number;
+  empty?: string;
+}) {
+  return (
+    <table className="tbl w-full table-fixed">
+      <colgroup>
+        <col style={{ width: labelWidth }} />
+        {head.slice(1).map((h) => <col key={h} />)}
+      </colgroup>
+      <thead>
+        <tr>{head.map((h, i) => <th key={h} className={i ? 'text-right' : ''}>{h}</th>)}</tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key}>
+            <td className="truncate">{r.label}</td>
+            {r.cells.map((c, i) => (
+              <td key={i} className={`text-right tabular-nums ${c.strong ? 'font-semibold' : ''} ${c.hot ? 'font-semibold text-age-5' : ''}`}>{c.v}</td>
+            ))}
+          </tr>
+        ))}
+        {!rows.length && (
+          <tr><td colSpan={head.length} className="py-6 text-center text-ink-soft">{empty ?? 'Nothing to show.'}</td></tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Super Admin detailed view. Same numbers and meanings as the summary (pending POD, critical, loss requested,
+ * loss accepted, POD shared / closed), with more breakdowns: status, hubs, agents, sources and the oldest pending.
+ */
 async function DetailedDashboard({ sp }: { sp: Record<string, string | string[] | undefined> }) {
   const f = parseCaseFilters(sp, { category: 'all' });
   const supabase = await createClient();
-  const statsFilter = {
-    q: f.q, client: f.client, status: f.status, category: f.category, aging: f.aging, hub: f.hub, agent: f.agent, poc: f.poc,
-    source: f.source, from: f.from, to: f.to, sla: f.sla, reason: f.reason,
-  };
-
-  const [statsRes, clients, statuses, buckets, agents, pocs, oldestRes] = await Promise.all([
-    supabase.rpc('case_stats_f', { p: statsFilter }),
+  const p = toStats(f, { category: 'all' });
+  const [podRes, statusRes, clients, agents, pocs, oldestRes] = await Promise.all([
+    supabase.rpc('pod_stats', { p }),
+    supabase.rpc('case_stats_f', { p }),
     getClients(supabase),
-    getStatuses(supabase),
-    getBuckets(supabase),
     getAgents(supabase),
     getPocs(supabase, f.client && f.client !== 'none' ? f.client : null),
     applyCaseFilters(
-      supabase.from('v_cases').select('id, awb, client_display_name, aging_days, status_label, status_color, hub, location'),
-      { ...f, category: f.category === 'all' ? 'active' : f.category },
+      supabase.from('v_cases').select('id, awb, client_display_name, aging_days, status_label, status_color, hub, location, final_value'),
+      { ...f, category: 'pending_pod' },
     )
       .order('aging_days', { ascending: false })
       .limit(10),
   ]);
-  if (statsRes.error) throw new Error(statsRes.error.message);
-  const s = statsRes.data as Stats;
-  const count = (code: string) => s.by_status.find((x) => x.code === code)?.count ?? 0;
-  const lostPending = s.by_status.filter((x) => x.category === 'lost_pending').reduce((n, x) => n + x.count, 0);
-  const lost = s.by_status.filter((x) => x.category === 'lost').reduce((n, x) => n + x.count, 0);
-  const closed = s.by_status.filter((x) => x.category === 'closed').reduce((n, x) => n + x.count, 0);
-  const filtered = Object.entries(statsFilter).some(([k, v]) => v && !(k === 'category' && v === 'all'));
-  const casesHref = (extra: Record<string, string>) => `/cases${filtersToQuery({ ...statsFilter }, extra)}`;
-  const lostApprovalHref = `/lost-approval${filtersToQuery({ client: f.client, hub: f.hub, aging: f.aging, q: f.q })}`;
-  const oldest = (oldestRes.data ?? []) as Pick<CaseRow, 'id' | 'awb' | 'client_display_name' | 'aging_days' | 'status_label' | 'status_color' | 'hub' | 'location'>[];
+  if (podRes.error) throw new Error(podRes.error.message);
+  if (statusRes.error) throw new Error(statusRes.error.message);
+  const s = podRes.data as PodStats;
+  const st = statusRes.data as StatusStats;
+  const base = { q: f.q, client: f.client, agent: f.agent, hub: f.hub, source: f.source, from: f.from, to: f.to, poc: f.poc, reason: f.reason };
+  const cases = (extra: Record<string, string | null>) => `/cases${filtersToQuery({ ...base, sort: 'aging_days', dir: 'desc' } as never, extra)}`;
+  const filtered = Object.values(base).some(Boolean) || !!f.value;
+  const tileHref = (k: string) =>
+    k === 'pending' ? cases({ category: 'pending_pod' }) : k === 'critical' ? cases({ category: 'critical' })
+      : k === 'shared' ? cases({ category: 'pod_done' }) : k === 'lost_pending' ? `/lost-approval${f.client ? `?client=${f.client}` : ''}`
+        : cases({ category: 'lost' });
+  const rs = (v: number | null | undefined) => fmtInr(Number(v) || 0);
+  const clientKey = (id: string | null) => id ?? 'none';
+
+  // Pending POD by age, grouped for the ribbon: 1–7 days, then the longer ranges as they are.
+  const daily = s.pending_age.filter((b) => b.max !== null && b.max <= 7);
+  const ribbon = [
+    { label: '1–7', min: 0, max: 7 as number | null, count: daily.reduce((n, b) => n + b.count, 0) },
+    ...s.pending_age.filter((b) => !daily.includes(b)).map((b) => ({ label: b.label, min: b.min, max: b.max, count: b.count })),
+  ];
+  const ribbonHref = (label: string) => {
+    const b = ribbon.find((x) => x.label === label)!;
+    return cases({ category: 'pending_pod', agemin: String(b.min), agemax: b.max === null ? null : String(b.max) });
+  };
+  const byClient = s.by_client
+    .filter((c) => c.pending + c.lost_pending + c.lost + c.pod_shared > 0 || c.total > 0)
+    .sort((a, b) => b.pending - a.pending || b.lost - a.lost || b.total - a.total);
+  const oldest = (oldestRes.data ?? []) as (Pick<CaseRow, 'id' | 'awb' | 'client_display_name' | 'aging_days' | 'status_label' | 'status_color' | 'hub' | 'location'> & { final_value: number | null })[];
+  const byStatus = [...st.by_status].filter((x) => x.count > 0).sort((a, b) => b.count - a.count);
+  const bySource = [...st.by_source].filter((x) => x.total > 0).sort((a, b) => b.total - a.total);
 
   return (
     <>
-      <PageHeader title="Dashboard — detailed" sub="Every status, hub, agent and source. Numbers follow the filters below." />
+      <PageHeader title="POD lost — detailed" />
       <Flash sp={sp} />
       <DashTabs detailed />
       <CaseFilterForm
@@ -74,128 +119,101 @@ async function DetailedDashboard({ sp }: { sp: Record<string, string | string[] 
         hidden={{ view: 'detailed' }}
         action="/dashboard"
         clearHref="/dashboard?view=detailed"
-        fields={['q', 'client', 'category', 'status', 'aging', 'hub', 'agent', 'poc', 'source', 'reason', 'dates', 'sla']}
+        fields={['q', 'client', 'agent']}
+        more={['hub', 'poc', 'source', 'reason', 'dates', 'value']}
         clients={clients}
-        statuses={statuses}
-        buckets={buckets}
         agents={agents}
         pocs={pocs}
+        criticalDays={s.critical_days}
       />
-      {filtered && <p className="-mt-2 mb-3 text-xs text-ink-soft">Showing counts for the filtered cases only.</p>}
+      {filtered && <p className="-mt-2 mb-3 text-xs text-ink-soft">Showing numbers for the filtered cases only.</p>}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-        <Kpi label="Open cases" value={s.open} href={casesHref({ category: 'active' })} />
-        <Kpi label="New since yesterday" value={s.new_today} href={casesHref({ category: 'all', from: new Date(Date.now() - 86400000 + 19800000).toISOString().slice(0, 10) })} />
-        <Kpi label="TAT breached" value={s.sla_breached} tone={s.sla_breached ? 'alert' : undefined} href={casesHref({ sla: '1' })} />
-        <Kpi label="Lost — awaiting approval" value={lostPending} tone={lostPending ? 'warn' : undefined} href={lostApprovalHref} />
-        <Kpi label="Loss accepted" value={lost} href={casesHref({ category: 'lost' })} />
-        <Kpi label="POD shared" value={count('pod_shared')} href={casesHref({ status: 'pod_shared', category: 'all' })} />
-        <Kpi label="Closed" value={closed} href={casesHref({ category: 'closed' })} />
-        <Kpi label="All cases" value={s.total} href={casesHref({ category: 'all' })} />
+      <PodTiles s={s} href={tileHref} />
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+        <Kpi label="New since yesterday" value={s.new_today} href={cases({ category: 'all', from: new Date(Date.now() - 86400000 + 19800000).toISOString().slice(0, 10) })} />
+        <Kpi label="Pending POD without product value" value={s.value?.pending_no_value ?? 0} tone={s.value?.pending_no_value ? 'warn' : undefined} href={cases({ category: 'pending_pod', value: 'missing' })} />
+        <Kpi label="POD shared (open)" value={s.pod_shared} href={cases({ category: 'pod_done' })} />
+        <Kpi label="Closed" value={s.closed} href={cases({ category: 'closed' })} />
+        <Kpi label="All cases" value={s.total} href={cases({ category: 'all' })} sub={s.value ? `${rs(s.value.total)} value` : undefined} />
       </div>
 
-      <Panel title="Open cases by aging" className="mb-5">
-        <AgingRibbon buckets={s.by_aging} hrefFor={(label) => casesHref({ aging: label, category: 'active' })} />
+      <Panel title="POD pending by age" className="mb-5">
+        <AgingRibbon buckets={ribbon} hrefFor={ribbonHref} />
       </Panel>
 
-      <div className="mb-5 grid gap-5 xl:grid-cols-[3fr_2fr]">
-        <Panel title="Client-wise" bodyClass="tbl-wrap">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th className="text-right">Open</th>
-                <th className="text-right">Pending</th>
-                <th className="text-right">Lost awaiting approval</th>
-                <th className="text-right">Lost</th>
-                <th className="text-right">POD shared</th>
-                <th className="text-right">TAT breached</th>
-                <th className="text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.by_client.map((c) => (
-                <tr key={c.client + (c.client_id ?? '')}>
-                  <td>
-                    <Link href={casesHref({ client: c.client_id ?? 'none', category: 'active' })}>{c.client}</Link>
-                  </td>
-                  <td className="text-right font-semibold">{fmtNum(c.open)}</td>
-                  <td className="text-right">{fmtNum(c.pending)}</td>
-                  <td className="text-right">{fmtNum(c.lost_pending)}</td>
-                  <td className="text-right">{fmtNum(c.lost)}</td>
-                  <td className="text-right">{fmtNum(c.pod_shared)}</td>
-                  <td className={`text-right ${c.sla_breached ? 'font-semibold text-age-5' : ''}`}>{fmtNum(c.sla_breached)}</td>
-                  <td className="text-right text-ink-soft">{fmtNum(c.total)}</td>
-                </tr>
-              ))}
-              {!s.by_client.length && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-ink-soft">No cases yet. Sync a Google Sheet or add an email escalation.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      <Panel title="Client wise — pendency and loss" className="mb-5" bodyClass="tbl-wrap">
+        <NumTable
+          head={['Client', 'Pending POD', `Critical (> ${s.critical_days} d)`, 'Loss requested', 'Loss accepted', 'POD shared', 'All AWBs', 'Pending ₹', 'Loss accepted ₹']}
+          empty="No cases yet. Sync a Google Sheet or add an email escalation."
+          rows={byClient.map((c) => {
+            const k = clientKey(c.client_id);
+            return {
+              key: c.client + k,
+              label: <Link href={cases({ client: k, category: 'all' })}>{c.client}</Link>,
+              cells: [
+                { v: <Link href={cases({ client: k, category: 'pending_pod' })}>{fmtNum(c.pending)}</Link>, strong: true },
+                { v: <Link href={cases({ client: k, category: 'critical' })}>{fmtNum(c.critical)}</Link>, hot: c.critical > 0 },
+                { v: <Link href={`/lost-approval?client=${k}`}>{fmtNum(c.lost_pending)}</Link> },
+                { v: <Link href={cases({ client: k, category: 'lost' })}>{fmtNum(c.lost)}</Link> },
+                { v: fmtNum(c.pod_shared) },
+                { v: fmtNum(c.total) },
+                { v: rs(c.pending_value) },
+                { v: rs(c.lost_value) },
+              ],
+            };
+          })}
+        />
+      </Panel>
+
+      <div className="mb-5 grid gap-5 xl:grid-cols-2">
+        <Panel title="Top hubs — pending POD (AWBs)">
+          {s.by_hub.length
+            ? <HBarChart data={[...s.by_hub].sort((a, b) => b.pending - a.pending).slice(0, 15).map((h) => ({ name: h.hub, value: h.pending }))} color="#2A4066" />
+            : <p className="text-ink-soft">No pending POD.</p>}
         </Panel>
-        <Panel title="Status">
-          <HBarChart
-            data={s.by_status.map((x) => ({ name: x.label, value: x.count }))}
-            colors={s.by_status.map((x) => STATUS_HEX[x.color] ?? '#7B8594')}
+        <Panel title="All cases by status">
+          <HBarChart data={byStatus.map((x) => ({ name: x.label, value: x.count }))} colors={byStatus.map((x) => STATUS_HEX[x.color] ?? '#7B8594')} />
+        </Panel>
+      </div>
+
+      <div className="mb-5 grid gap-5 xl:grid-cols-[3fr_2fr]">
+        <Panel title="Agents — pending POD" bodyClass="tbl-wrap">
+          <NumTable
+            head={['Agent', 'Pending POD', 'Critical', 'Oldest (days)', 'Pending ₹']}
+            labelWidth={160}
+            rows={s.by_agent.map((a) => {
+              const q: Record<string, string> = a.agent_id ? { agent: a.agent_id } : a.agent === 'Unassigned' ? { agent: 'unassigned' } : { q: a.agent };
+              return {
+                key: (a.agent_id ?? '') + a.agent,
+                label: a.agent,
+                cells: [
+                  { v: <Link href={cases({ ...q, category: 'pending_pod' })}>{fmtNum(a.pending)}</Link>, strong: true },
+                  { v: <Link href={cases({ ...q, category: 'critical' })}>{fmtNum(a.critical)}</Link>, hot: a.critical > 0 },
+                  { v: a.oldest ?? '—' },
+                  { v: rs(a.pending_value) },
+                ],
+              };
+            })}
+          />
+        </Panel>
+        <Panel title="Sources" bodyClass="tbl-wrap">
+          <NumTable
+            head={['Source', 'Open', 'All AWBs']}
+            labelWidth={160}
+            rows={bySource.map((x) => ({
+              key: x.source,
+              label: <Link href={cases({ source: x.source, category: 'all' })}>{SOURCE_LABELS[x.source] ?? x.source}</Link>,
+              cells: [{ v: fmtNum(x.open) }, { v: fmtNum(x.total) }],
+            }))}
           />
         </Panel>
       </div>
 
-      <div className="mb-5 grid gap-5 xl:grid-cols-3">
-        <Panel title="Open cases by hub (top 15)">
-          {s.by_hub.length ? <HBarChart data={s.by_hub.map((h) => ({ name: h.hub, value: h.open }))} color="#2A4066" /> : <p className="text-ink-soft">No open cases.</p>}
-        </Panel>
-        <Panel title="Agents" bodyClass="tbl-wrap">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th className="text-right">Open</th>
-                <th className="text-right">TAT breached</th>
-                <th className="text-right">Avg aging</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.by_agent.map((a) => (
-                <tr key={a.agent}>
-                  <td>{a.agent}</td>
-                  <td className="text-right">{fmtNum(a.open)}</td>
-                  <td className="text-right">{fmtNum(a.sla_breached)}</td>
-                  <td className="text-right">{a.avg_aging} d</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-        <Panel title="Sources">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th className="text-right">Open</th>
-                <th className="text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.by_source.map((x) => (
-                <tr key={x.source}>
-                  <td>
-                    <Link href={casesHref({ source: x.source, category: 'active' })}>{SOURCE_LABELS[x.source]}</Link>
-                  </td>
-                  <td className="text-right">{fmtNum(x.open)}</td>
-                  <td className="text-right">{fmtNum(x.total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-      </div>
-
-      <Panel title={filtered ? 'Oldest cases (matching filters)' : 'Oldest open cases'} actions={<Link href={casesHref({ category: f.category === 'all' ? 'active' : f.category, sort: 'aging_days', dir: 'desc' })} className="btn btn-sm">See all</Link>} bodyClass="tbl-wrap">
-        <table className="tbl">
+      <Panel title="Oldest pending POD" actions={<Link href={cases({ category: 'pending_pod' })} className="btn btn-sm">See all</Link>} bodyClass="tbl-wrap">
+        <table className="tbl w-full table-fixed">
+          <colgroup>
+            <col style={{ width: 200 }} /><col /><col style={{ width: 110 }} /><col /><col /><col style={{ width: 130 }} />
+          </colgroup>
           <thead>
             <tr>
               <th>AWB</th>
@@ -203,20 +221,21 @@ async function DetailedDashboard({ sp }: { sp: Record<string, string | string[] 
               <th>Aging</th>
               <th>Status</th>
               <th>Hub / location</th>
+              <th className="text-right">Product value</th>
             </tr>
           </thead>
           <tbody>
             {oldest.map((c) => (
               <tr key={c.id}>
-                <td>
-                  <Link href={`/cases/${c.id}`} className="awb">{c.awb}</Link>
-                </td>
-                <td>{c.client_display_name ?? '—'}</td>
+                <td><Link href={`/cases/${c.id}`} className="awb">{c.awb}</Link></td>
+                <td className="truncate">{c.client_display_name ?? '—'}</td>
                 <td><Aging days={c.aging_days} /></td>
                 <td><StatusBadge label={c.status_label} color={c.status_color} /></td>
-                <td>{c.hub ?? c.location ?? '—'}</td>
+                <td className="truncate">{c.hub ?? c.location ?? '—'}</td>
+                <td className="text-right tabular-nums">{c.final_value == null ? '—' : rs(c.final_value)}</td>
               </tr>
             ))}
+            {!oldest.length && <tr><td colSpan={6} className="py-6 text-center text-ink-soft">No pending POD.</td></tr>}
           </tbody>
         </table>
       </Panel>
@@ -255,8 +274,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   ]);
   const clients = internal && aligned.length ? allClients.filter((c) => aligned.includes(c.id)) : allClients;
   const scopeNote = !internal ? '' : aligned.length
-    ? ` Showing your clients: ${clients.map((c) => c.name).join(', ')}.`
-    : ' Showing the cases assigned to you (ask an Admin to align your clients).';
+    ? `Your clients: ${clients.map((c) => c.name).join(', ')}`
+    : 'Cases assigned to you';
   if (statsRes.error) throw new Error(statsRes.error.message);
   const s = statsRes.data as PodStats;
   const mine = mineRes.data as PodStats | null;
@@ -268,23 +287,28 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
     k === 'pending' ? cases({ category: 'pending_pod' }) : k === 'critical' ? cases({ category: 'critical' })
       : k === 'shared' ? cases({ category: 'pod_done' }) : k === 'lost_pending' ? `/lost-approval${f.client ? `?client=${f.client}` : ''}`
         : cases({ category: 'lost' });
-  const ageCols = s.pending_age.map((b) => ({ label: b.max === b.min ? `${b.label} d` : b.label }));
+  const ageCols = s.pending_age.map((b) => ({ label: /^\d+$/.test(b.label) ? `${b.label} d` : b.label }));
   const fmtRs = (v: number) => fmtNum(Math.round(v));
   const hotFrom = s.pending_age.findIndex((b) => b.min > s.critical_days);
   const hot = hotFrom >= 0 ? hotFrom : undefined;
   const clientKey = (id: string | null) => id ?? 'none';
-  const agentHref = (a: { agent_id: string | null; agent: string }, extra: Record<string, string | null> = {}) =>
-    a.agent_id ? { agent: a.agent_id, ...extra } : a.agent === 'Unassigned' ? { agent: 'unassigned', ...extra } : { q: a.agent, ...extra };
-  const valueNote = s.value?.pending_no_value ? ` ${fmtNum(s.value.pending_no_value)} pending AWB(s) have no product value yet (counted as ₹0) — add them under Product value & OTP.` : '';
-  const statusCols = [{ label: 'Pending POD' }, { label: `Critical (> ${s.critical_days} d)` }, { label: 'Loss requested' }, { label: 'Loss accepted' }];
-  const statusCats = ['pending_pod', 'critical', 'lost_pending', 'lost'];
+  const agentQ = (a: { agent_id: string | null; agent: string }): Record<string, string> =>
+    a.agent_id ? { agent: a.agent_id } : a.agent === 'Unassigned' ? { agent: 'unassigned' } : { q: a.agent };
+  const r = reportRows(s);
+  const both = ['value', 'count'] as const;
+  const lostCols = [{ label: 'Product value (₹)' }, { label: 'AWBs' }];
 
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        sub={`Every shipment ends with a POD shared or a loss accepted. Pending POD over ${s.critical_days} days is critical. Click any number to open those cases.${scopeNote}`}
-        actions={<Link href={cases({ category: 'critical' })} className="btn btn-danger">Open critical list ({fmtNum(s.critical)})</Link>}
+        title="POD lost"
+        sub={scopeNote || undefined}
+        actions={
+          <div className="flex gap-2">
+            <a href={`/api/export/dashboard${filtersToQuery(f)}`} className="btn">Download Excel</a>
+            <Link href={cases({ category: 'critical' })} className="btn btn-danger">Critical list ({fmtNum(s.critical)})</Link>
+          </div>
+        }
       />
       <Flash sp={sp} />
       {isSuper && <DashTabs detailed={false} />}
@@ -306,37 +330,44 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
       )}
       <PodTiles s={s} href={tileHref} />
 
-      {(['value', 'count'] as const).map((m) => (
-        <PivotTable
-          key={`age-${m}`}
-          title="Pending POD by age"
-          note={m === 'value' ? `Days since escalation. Over ${s.critical_days} days is critical (red columns): ${fmtNum(s.critical)} of ${fmtNum(s.pending)} pending.${valueNote}` : 'Same shipments, by AWB count.'}
-          rowHeader="Client"
-          columns={ageCols}
-          hotFrom={hot}
-          format={m === 'value' ? fmtRs : fmtNum}
-          variant={m}
-          rows={s.by_client.filter((c) => c.pending > 0).map((c) => ({
-            label: c.client,
-            href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
-            cells: (m === 'value' ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
-          }))}
-          columnHref={(i) => rangeHref(s.pending_age[i])}
-          totalHref={cases({ category: 'pending_pod' })}
-        />
-      ))}
+      <PivotTable
+        title="1. POD pending"
+        rowHeader=""
+        columns={ageCols}
+        hotFrom={hot}
+        variant="mixed"
+        keepOrder
+        noTotalRow
+        rows={[
+          { label: 'Product value (₹)', cells: s.pending_age.map((b) => ({ value: Number(b.value), href: rangeHref(b) })) },
+          { label: 'AWBs', cells: s.pending_age.map((b) => ({ value: b.count, href: rangeHref(b) })) },
+        ]}
+      />
 
-      {(['value', 'count'] as const).map((m) => (
+      <PivotTable
+        title="2. POD accepted lost — client wise"
+        rowHeader="Client"
+        columns={lostCols}
+        variant="mixed"
+        noTotalCol
+        rows={r.lostClients.map((c) => ({
+          label: c.client,
+          href: cases({ client: clientKey(c.client_id), category: 'lost' }),
+          cells: [{ value: Number(c.lost_value) }, { value: c.lost, href: cases({ client: clientKey(c.client_id), category: 'lost' }) }],
+        }))}
+      />
+
+      {both.map((m) => (
         <PivotTable
           key={`hub-${m}`}
-          title={m === 'value' ? 'Top 20 hubs — pending POD by product value' : 'Top 20 hubs — pending POD (same hubs)'}
-          note={m === 'value' ? 'Hubs with the highest value still waiting for a POD (cases without a hub are left out).' : undefined}
+          title={`${m === 'value' ? 3 : 4}. Top 15 hubs — POD pending`}
           rowHeader="Hub"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
-          rows={s.by_hub.map((h) => ({
+          keepOrder
+          rows={r.hubs.map((h) => ({
             label: h.hub,
             href: cases({ hub: h.hub, category: 'pending_pod' }),
             cells: (m === 'value' ? h.age_value : h.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { hub: h.hub }) })),
@@ -344,67 +375,57 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
         />
       ))}
 
-      {(['value', 'count'] as const).map((m) => (
+      {both.map((m) => (
         <PivotTable
-          key={`status-${m}`}
-          title="Pendency and loss — client wise"
+          key={`client-${m}`}
+          title={`${m === 'value' ? 5 : 6}. Top 15 clients — POD pending`}
           rowHeader="Client"
-          columns={statusCols}
+          columns={ageCols}
+          hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
-          rows={s.by_client.filter((c) => c.pending + c.lost_pending + c.lost > 0).map((c) => ({
+          keepOrder
+          rows={r.clients.map((c) => ({
             label: c.client,
-            href: cases({ client: clientKey(c.client_id), category: 'all' }),
-            cells: (m === 'value'
-              ? [c.pending_value, c.critical_value, c.lost_pending_value, c.lost_value]
-              : [c.pending, c.critical, c.lost_pending, c.lost]).map((v, i) => ({
-              value: Number(v),
-              href: statusCats[i] === 'lost_pending' ? `/lost-approval?client=${clientKey(c.client_id)}` : cases({ client: clientKey(c.client_id), category: statusCats[i] }),
-            })),
+            href: cases({ client: clientKey(c.client_id), category: 'pending_pod' }),
+            cells: (m === 'value' ? c.age_value : c.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], { client: clientKey(c.client_id) }) })),
           }))}
-          columnHref={(i) => (statusCats[i] === 'lost_pending' ? '/lost-approval' : cases({ category: statusCats[i] }))}
-          totalHref={cases({ category: 'all' })}
-          notInTotal={[1]}
-          note={m === 'value' ? `Critical is part of Pending POD, so it is not added again. ${s.auto_lost_days ? `Pending POD not shared within ${s.auto_lost_days} days is raised as a Lost request automatically.` : ''}` : undefined}
+          columnHref={(i) => rangeHref(s.pending_age[i])}
         />
       ))}
 
-      <PivotTable
-        title="Top 15 hubs — loss accepted by product value"
-        note="Hubs with the highest accepted loss; loss still waiting for approval next to it."
-        rowHeader="Hub"
-        columns={[{ label: 'Loss accepted AWBs' }, { label: 'Loss accepted ₹' }, { label: 'Loss requested AWBs' }, { label: 'Loss requested ₹' }]}
-        formats={[fmtNum, fmtRs, fmtNum, fmtRs]}
-        variant="mixed"
-        noTotalCol
-        rows={s.hub_loss.map((h) => ({
-          label: h.hub,
-          cells: [
-            { value: h.lost, href: cases({ hub: h.hub, category: 'lost' }) }, { value: Number(h.lost_value) },
-            { value: h.lost_pending, href: `/lost-approval?q=${encodeURIComponent(h.hub)}` }, { value: Number(h.lost_pending_value) },
-          ],
-        }))}
-      />
-
-      {(['value', 'count'] as const).map((m) => (
+      {both.map((m) => (
         <PivotTable
           key={`agent-${m}`}
-          title="Pending POD — agent × age"
-          note={m === 'value' ? 'Agent = the person assigned in the dashboard, or the agent name in the tracker.' : undefined}
+          title={`${m === 'value' ? 7 : 8}. POD pending — agent wise`}
           rowHeader="Agent"
           columns={ageCols}
           hotFrom={hot}
           format={m === 'value' ? fmtRs : fmtNum}
           variant={m}
-          rows={s.by_agent.map((a) => ({
+          keepOrder
+          rows={r.agents.map((a) => ({
             label: a.agent,
-            href: cases({ ...agentHref(a), category: 'pending_pod' }),
-            cells: (m === 'value' ? a.age_value : a.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], agentHref(a)) })),
+            href: cases({ ...agentQ(a), category: 'pending_pod' }),
+            cells: (m === 'value' ? a.age_value : a.age).map((v, i) => ({ value: Number(v), href: rangeHref(s.pending_age[i], agentQ(a)) })),
           }))}
           columnHref={(i) => rangeHref(s.pending_age[i])}
           totalHref={cases({ category: 'pending_pod' })}
         />
       ))}
+
+      <PivotTable
+        title="9. POD accepted lost — agent wise"
+        rowHeader="Agent"
+        columns={lostCols}
+        variant="mixed"
+        noTotalCol
+        rows={r.lostAgents.map((a) => ({
+          label: a.agent,
+          href: cases({ ...agentQ(a), category: 'lost' }),
+          cells: [{ value: Number(a.lost_value) }, { value: a.lost, href: cases({ ...agentQ(a), category: 'lost' }) }],
+        }))}
+      />
     </>
   );
 }

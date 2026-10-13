@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { AGING_HEX, agingStep, fmtDate, fmtDateTime, fmtNum } from '../format';
+import { AGING_HEX, agingStep, fmtDate, fmtDateTime, fmtDMY, fmtNum } from '../format';
 
 /** Shape returned by public.weekly_report_data(). */
 export interface WeeklyReportData {
@@ -44,8 +44,7 @@ function table(headers: string[], rows: string[], aligns: string[] = []): string
 const viaLabel = (v: string) => ({ app: 'Shadowfax team', poc_portal: 'Client portal', google_sheet: 'Google Sheet', email: 'Email' })[v] ?? v;
 
 export function weeklySubject(d: WeeklyReportData): string {
-  const s = d.summary;
-  return `Lost / POD weekly summary — ${fmtDate(d.period_from)} to ${fmtDate(d.period_to)} — ${fmtNum(s.pending)} pending, ${fmtNum(s.lost_requested)} loss requested, ${fmtNum(s.loss_accepted_period)} loss accepted`;
+  return `POD lost weekly report from ${fmtDMY(d.period_from)} to ${fmtDMY(d.period_to)}`;
 }
 
 export function renderWeeklyReportHtml(d: WeeklyReportData, o: { siteUrl: string; attachmentName: string | null }): string {
@@ -82,7 +81,7 @@ export function renderWeeklyReportHtml(d: WeeklyReportData, o: { siteUrl: string
   return `<!doctype html><html><body style="margin:0;padding:0;background:#F3F4F1">
 <div style="font-family:'Public Sans',Segoe UI,Arial,sans-serif;max-width:1100px;margin:0 auto;padding:20px;background:#ffffff;color:${INK}">
 <div style="border-left:6px solid ${NAVY};padding:2px 0 2px 12px;margin-bottom:12px">
-  <div style="font-size:19px;font-weight:700">Lost / POD — weekly summary</div>
+  <div style="font-size:19px;font-weight:700">POD lost — weekly summary</div>
   <div style="font-size:12px;color:${SOFT}">${fmtDate(d.period_from)} to ${fmtDate(d.period_to)}. Generated ${fmtDateTime(d.generated_at)} IST from the consolidated database.</div>
 </div>
 <table cellpadding="0" cellspacing="0" style="border-collapse:collapse">${kpiRow}</table>
@@ -113,7 +112,7 @@ export interface PendingCaseRow { client_display_name: string | null; awb: strin
 
 export async function buildWeeklyWorkbook(d: WeeklyReportData, pendingCases: PendingCaseRow[]): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Lost / POD dashboard';
+  wb.creator = 'POD lost';
   const s = d.summary;
   sheet(wb, 'Summary', [{ header: 'Measure', key: 'k', width: 36 }, { header: 'Value', key: 'v', width: 14 }], [
     { k: 'Period', v: `${d.period_from} to ${d.period_to}` },
