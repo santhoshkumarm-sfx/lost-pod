@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { isCronAuthorized } from '@/lib/cron';
 import { runScheduledReports } from '@/lib/reports/weekly';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { autoFlushClientOutbox } from '@/lib/client-mail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -10,7 +11,9 @@ export const maxDuration = 300;
 export async function GET(req: NextRequest) {
   if (!isCronAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const results = await runScheduledReports(createAdminClient());
+    const sb = createAdminClient();
+    const results = await runScheduledReports(sb);
+    await autoFlushClientOutbox(sb).catch((e) => console.error('Client mail failed', e));
     const failed = results.some((r) => r.status === 'failed');
     return NextResponse.json({ ok: !failed, results }, { status: failed ? 500 : 200 });
   } catch (e) {

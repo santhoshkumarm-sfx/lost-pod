@@ -107,6 +107,13 @@ drop policy if exists report_runs_read on public.report_runs;
 create policy report_runs_read on public.report_runs for select to authenticated using ((select public.is_admin()));
 
 -- Tables the case view reads (policies and functions further down).
+-- Cases that only come from Google Sheet tabs a Super Admin switched off (Imports). They are left out everywhere.
+create table if not exists public.case_scope_off (case_id uuid primary key references public.cases (id) on delete cascade);
+alter table public.case_scope_off enable row level security;
+drop policy if exists case_scope_off_read on public.case_scope_off;
+create policy case_scope_off_read on public.case_scope_off for select to authenticated using (true);
+grant select on public.case_scope_off to authenticated;
+
 create table if not exists public.awb_values (
   awb           text primary key,
   product_value numeric(14, 2) check (product_value is null or product_value >= 0),
@@ -170,7 +177,8 @@ cross join lateral (
               then greatest(c.final_aging_days, 1) else greatest(cfg.today - c.escalation_date, 1) end as aging_days
 ) a
 left join buckets b on a.aging_days >= b.min_days and (b.max_days is null or a.aging_days <= b.max_days)
-where not c.is_deleted;
+where not c.is_deleted
+  and not exists (select 1 from public.case_scope_off o where o.case_id = c.id);
 
 -- ---------- Dashboard statistics: one pass over a slim, materialised set ----------
 create or replace function public.case_stats(p_client_id uuid default null, p_from date default null, p_to date default null,
@@ -1388,6 +1396,11 @@ begin
     end;
   end loop;
 
+  -- Cases seen in a tab that is switched on are back in scope.
+  if v_src.mode = 'cases' and v_src.is_active then
+    delete from public.case_scope_off o using public.source_records sr
+     where sr.sheet_source_id = p_source_id and sr.case_id = o.case_id;
+  end if;
   return jsonb_build_object('created', c_created, 'updated', c_updated, 'linked', c_linked,
                             'unchanged', c_unchanged, 'skipped', c_skipped, 'lost_requests', c_lost, 'errors', v_errors);
 end $$;
@@ -1797,6 +1810,7 @@ begin
     select c.id, c.team_status from public.cases c
      join public.status_master s on s.code = c.team_status
      where not c.is_deleted and s.category = 'open' and c.team_status <> 'pod_shared' and c.pod_status <> 'shared'
+       and not exists (select 1 from public.case_scope_off o where o.case_id = c.id)
        and public.app_today() - c.escalation_date > v_days
        and not exists (select 1 from public.pod_complaints k where k.case_id = c.id and k.status = 'open')
        and not exists (select 1 from public.lost_approvals la where la.case_id = c.id and (la.status = 'pending' or la.requested_via = 'auto'))
@@ -1846,3 +1860,257 @@ insert into public.app_settings (key, value, description) values
   ('pod_request_to', '[]', 'POD request email: also sent To these addresses (the client who asked is always included)'),
   ('pod_request_cc', '[]', 'POD request email: CC')
 on conflict (key) do nothing;
+
+-- ######## Which Google Sheet tabs count (Super Admin, Imports page) ########
+/**
+ * A case that came from Google Sheets is in scope when at least one "cases" tab it was read from is switched on.
+ * Recomputed whenever a tab is switched on or off. Returns how many cases are left out now.
+ */
+create or replace function public.refresh_case_scope()
+returns int language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  create temp table if not exists _scope_want (case_id uuid primary key) on commit drop;
+  truncate _scope_want;
+  insert into _scope_want
+    select sr.case_id from public.source_records sr
+      join public.sheet_sources s on s.id = sr.sheet_source_id
+      join public.cases c on c.id = sr.case_id and c.source_type = 'google_sheet'
+     where s.mode = 'cases'
+     group by sr.case_id having not bool_or(s.is_active);
+  delete from public.case_scope_off o where not exists (select 1 from _scope_want w where w.case_id = o.case_id);
+  insert into public.case_scope_off (case_id) select case_id from _scope_want on conflict do nothing;
+  select count(*) into n from public.case_scope_off;
+  return n;
+end $$;
+revoke execute on function public.refresh_case_scope() from public, anon;
+grant execute on function public.refresh_case_scope() to authenticated, service_role;
+
+-- Swift (14 Oct 2026): only "fwd POD from july" and "RVP POD from july" count. Done once; later changes are the Super Admin's.
+do $$
+begin
+  if not exists (select 1 from public.app_settings where key = 'done_swift_tabs_2026_10_14') then
+    update public.sheet_sources set is_active = false
+     where workbook_id = '1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us'
+       and trim(sheet_name) not in ('fwd POD from july', 'RVP POD from july');
+    update public.sheet_sources set is_active = true
+     where workbook_id = '1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us'
+       and trim(sheet_name) in ('fwd POD from july', 'RVP POD from july');
+    insert into public.app_settings (key, value, description)
+      values ('done_swift_tabs_2026_10_14', 'true', 'One-time: Swift limited to the two July POD tabs');
+  end if;
+end $$;
+select public.refresh_case_scope();
+
+-- ######## Client mail: one consolidated email per client ("session") ########
+-- Every client-facing change (POD shared by the team, Lost accepted / rejected / sent back) is queued here.
+-- The queue of a client is sent as ONE email (AWB → POD / decision, POD files attached and named by AWB):
+-- by "Send to client" in the app, or automatically once the client's queue has been quiet for a while.
+create table if not exists public.client_outbox (
+  id              uuid primary key default gen_random_uuid(),
+  client_id       uuid references public.clients (id) on delete cascade,
+  case_id         uuid references public.cases (id) on delete cascade,
+  awb             text not null,
+  kind            text not null check (kind in ('pod_shared', 'loss_accepted', 'loss_rejected', 'loss_sent_back')),
+  pod_link        text,
+  note            text,
+  requested_by    uuid references public.profiles (id) on delete set null,
+  lost_request_id uuid,
+  created_by      uuid references public.profiles (id) on delete set null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  sent_at         timestamptz,
+  batch_id        uuid,
+  dropped         boolean not null default false
+);
+create index if not exists client_outbox_pending_idx on public.client_outbox (client_id, created_at) where sent_at is null and not dropped;
+create index if not exists client_outbox_case_idx on public.client_outbox (case_id);
+
+create table if not exists public.pod_files (
+  id           uuid primary key default gen_random_uuid(),
+  case_id      uuid references public.cases (id) on delete cascade,
+  client_id    uuid references public.clients (id) on delete set null,
+  awb          text not null,
+  outbox_id    uuid references public.client_outbox (id) on delete set null,
+  path         text not null unique,          -- storage bucket "pod-files"
+  filename     text not null,
+  content_type text,
+  size_bytes   bigint,
+  uploaded_by  uuid references public.profiles (id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+create index if not exists pod_files_case_idx on public.pod_files (case_id);
+
+create table if not exists public.client_mail_batches (
+  id         uuid primary key default gen_random_uuid(),
+  client_id  uuid references public.clients (id) on delete set null,
+  items      int not null default 0,
+  files      int not null default 0,
+  recipients text[] not null default '{}',
+  subject    text,
+  status     text not null default 'sent' check (status in ('sent', 'failed')),
+  error      text,
+  trigger    text not null default 'manual',
+  sent_by    uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.client_outbox enable row level security;
+alter table public.pod_files enable row level security;
+alter table public.client_mail_batches enable row level security;
+drop policy if exists client_outbox_read on public.client_outbox;
+create policy client_outbox_read on public.client_outbox for select to authenticated
+  using ((select public.is_internal()) or (sent_at is not null and client_id in (select public.poc_client_ids())));
+drop policy if exists client_outbox_write on public.client_outbox;
+create policy client_outbox_write on public.client_outbox for update to authenticated using ((select public.is_internal()));
+drop policy if exists pod_files_read on public.pod_files;
+create policy pod_files_read on public.pod_files for select to authenticated
+  using ((select public.is_internal()) or client_id in (select public.poc_client_ids()));
+drop policy if exists client_mail_batches_read on public.client_mail_batches;
+create policy client_mail_batches_read on public.client_mail_batches for select to authenticated using ((select public.is_internal()));
+grant select, update on public.client_outbox to authenticated;
+grant select on public.pod_files, public.client_mail_batches to authenticated;
+
+-- POD shared by the team (case page, bulk update, complaint fix, files) → queued. Tracker imports and the
+-- automatic POD-request check (which already sends its own consolidated email) are not queued.
+create or replace function public.queue_pod_shared()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(new.last_change_source, 'app') in ('sheet', 'pod_sheet') then return new; end if;
+  if not (new.team_status = 'pod_shared' or new.pod_status = 'shared') then return new; end if;
+  if (old.team_status = 'pod_shared' or old.pod_status = 'shared') and old.pod_link is not distinct from new.pod_link then return new; end if;
+  update public.client_outbox set pod_link = coalesce(new.pod_link, pod_link), updated_at = now()
+   where case_id = new.id and kind = 'pod_shared' and sent_at is null and not dropped;
+  if not found then
+    insert into public.client_outbox (client_id, case_id, awb, kind, pod_link, created_by)
+    values (new.client_id, new.id, new.awb, 'pod_shared', new.pod_link, auth.uid());
+  end if;
+  return new;
+end $$;
+drop trigger if exists cases_queue_pod_shared on public.cases;
+create trigger cases_queue_pod_shared after update of team_status, pod_status, pod_link on public.cases
+  for each row execute function public.queue_pod_shared();
+
+-- Lost decisions → queued (one consolidated email per client instead of one per click).
+create or replace function public.queue_lost_decision()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare c record;
+begin
+  if old.status <> 'pending' or new.status = 'pending' then return new; end if;
+  select id, client_id, awb into c from public.cases where id = new.case_id;
+  if c.id is null then return new; end if;
+  insert into public.client_outbox (client_id, case_id, awb, kind, note, requested_by, lost_request_id, created_by)
+  values (c.client_id, c.id, c.awb,
+          case new.status when 'approved' then 'loss_accepted' when 'rejected' then 'loss_rejected' else 'loss_sent_back' end,
+          new.decision_note, new.requested_by, new.request_id, coalesce(new.decided_by, auth.uid()));
+  return new;
+end $$;
+drop trigger if exists lost_approvals_queue on public.lost_approvals;
+create trigger lost_approvals_queue after update of status on public.lost_approvals
+  for each row execute function public.queue_lost_decision();
+
+insert into public.app_settings (key, value, description) values
+  ('client_update_to', '[]', 'Client update emails: also To these addresses (the client contacts are always included)'),
+  ('client_update_cc', '[]', 'Client update emails: CC'),
+  ('client_mail_quiet_minutes', '30', 'A client''s queued updates are emailed automatically once nothing new was added for this many minutes (needs automatic emails on)')
+on conflict (key) do nothing;
+
+-- POD files are kept in Supabase Storage (bucket "pod-files"), uploaded straight from the browser by the team.
+do $$
+begin
+  if exists (select 1 from information_schema.schemata where schema_name = 'storage') then
+    insert into storage.buckets (id, name, public) values ('pod-files', 'pod-files', false) on conflict (id) do nothing;
+    execute 'drop policy if exists pod_files_insert on storage.objects';
+    execute $p$create policy pod_files_insert on storage.objects for insert to authenticated
+      with check (bucket_id = 'pod-files' and (select public.is_internal()))$p$;
+    execute 'drop policy if exists pod_files_select on storage.objects';
+    execute $p$create policy pod_files_select on storage.objects for select to authenticated
+      using (bucket_id = 'pod-files' and (select public.is_internal()))$p$;
+  end if;
+end $$;
+
+/**
+ * Team: register POD files / a POD link for AWBs (files were uploaded to storage first). Each AWB's case becomes
+ * "POD shared" and gets one queued item with its files. p_items: [{case_id, link, files:[{path,name,type,size}]}].
+ */
+create or replace function public.share_pods(p_items jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  it jsonb; f jsonb; v_case public.cases%rowtype; v_out uuid; v_link text; v_n int := 0; v_files int := 0;
+  v_clients uuid[] := '{}';
+begin
+  if not public.is_internal() then raise exception 'Only the Shadowfax team can share PODs'; end if;
+  for it in select value from jsonb_array_elements(p_items) loop
+    select * into v_case from public.cases where id = (it ->> 'case_id')::uuid and not is_deleted;
+    if v_case.id is null then continue; end if;
+    v_link := nullif(trim(it ->> 'link'), '');
+    if v_link is not null and v_link !~* '^https?://' then raise exception 'AWB %: the POD link must start with http', v_case.awb; end if;
+    if v_link is null and coalesce(jsonb_array_length(it -> 'files'), 0) = 0 then continue; end if;
+    -- one pending item per case
+    select id into v_out from public.client_outbox where case_id = v_case.id and kind = 'pod_shared' and sent_at is null and not dropped;
+    if v_out is null then
+      insert into public.client_outbox (client_id, case_id, awb, kind, pod_link, created_by)
+      values (v_case.client_id, v_case.id, v_case.awb, 'pod_shared', v_link, auth.uid()) returning id into v_out;
+    elsif v_link is not null then
+      update public.client_outbox set pod_link = v_link, updated_at = now() where id = v_out;
+    end if;
+    for f in select value from jsonb_array_elements(coalesce(it -> 'files', '[]'::jsonb)) loop
+      insert into public.pod_files (case_id, client_id, awb, outbox_id, path, filename, content_type, size_bytes, uploaded_by)
+      values (v_case.id, v_case.client_id, v_case.awb, v_out, f ->> 'path', coalesce(nullif(f ->> 'name', ''), v_case.awb),
+              f ->> 'type', nullif(f ->> 'size', '')::bigint, auth.uid())
+      on conflict (path) do nothing;
+      v_files := v_files + 1;
+    end loop;
+    if v_link is null then
+      v_link := nullif(it ->> 'files_link', '');   -- the app page that lists the case's POD files
+    end if;
+    -- The queue item exists already, so the trigger only refreshes it.
+    update public.cases set pod_link = v_link, pod_status = 'shared', team_status = 'pod_shared', status_source = 'app',
+           last_change_source = 'app', last_changed_by = auth.uid(), updated_at = now()
+     where id = v_case.id;
+    update public.client_outbox set updated_at = now() where id = v_out;
+    -- The client's POD request shows it as shared too.
+    update public.pod_request_items set result = 'shared', pod_link = v_link where case_id = v_case.id and result = 'not_found';
+    v_n := v_n + 1;
+    v_clients := array_append(v_clients, v_case.client_id);
+  end loop;
+  return jsonb_build_object('shared', v_n, 'files', v_files,
+    'clients', (select coalesce(jsonb_agg(distinct x), '[]'::jsonb) from unnest(v_clients) x));
+end $$;
+revoke execute on function public.share_pods(jsonb) from public, anon;
+grant execute on function public.share_pods(jsonb) to authenticated;
+
+/**
+ * After the POD sheets are read: AWBs that a client asked for and that were not found then, but have a POD now,
+ * are shared and queued for the client's consolidated email. Service role (sync job). Returns how many.
+ */
+create or replace function public.recheck_pod_requests()
+returns int language plpgsql security definer set search_path = public as $$
+declare r record; n int := 0; v_out uuid;
+begin
+  for r in
+    select distinct on (i.case_id) i.upload_id, i.awb, i.case_id, u.uploaded_by, c.client_id,
+           (select p.pod_link from public.pod_index p where p.awb = i.awb order by p.scan_date desc nulls last, p.first_seen_at desc limit 1) as link
+      from public.pod_request_items i
+      join public.case_uploads u on u.id = i.upload_id
+      join public.cases c on c.id = i.case_id and not c.is_deleted
+      join public.status_master s on s.code = c.team_status
+     where i.result = 'not_found' and s.category = 'open' and c.team_status <> 'pod_shared'
+       and exists (select 1 from public.pod_index p where p.awb = i.awb)
+     order by i.case_id, u.created_at desc
+  loop
+    update public.cases set pod_link = r.link, pod_status = 'shared', team_status = 'pod_shared', status_source = 'app',
+           last_change_source = 'pod_sheet', updated_at = now()
+     where id = r.case_id;
+    update public.pod_request_items set result = 'shared', pod_link = r.link where case_id = r.case_id and result = 'not_found';
+    select id into v_out from public.client_outbox where case_id = r.case_id and kind = 'pod_shared' and sent_at is null and not dropped;
+    if v_out is null then
+      insert into public.client_outbox (client_id, case_id, awb, kind, pod_link, requested_by, note)
+      values (r.client_id, r.case_id, r.awb, 'pod_shared', r.link, r.uploaded_by, 'Found in the POD records');
+    end if;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+revoke execute on function public.recheck_pod_requests() from public, anon, authenticated;
+grant execute on function public.recheck_pod_requests() to service_role;

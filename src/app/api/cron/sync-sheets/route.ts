@@ -4,6 +4,7 @@ import { googleStatus } from '@/lib/google';
 import { syncSources } from '@/lib/importer/sheets-sync';
 import { syncPodIndex } from '@/lib/pod/sheets';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { autoFlushClientOutbox } from '@/lib/client-mail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -16,11 +17,16 @@ export async function GET(req: NextRequest) {
     const sb = createAdminClient();
     const { results, remaining } = await syncSources(sb, { actor: null, trigger: 'cron', timeBudgetMs: 200_000 });
     // Then the POD sheets (new rows only), in the time that is left.
-    const pods = await syncPodIndex(sb, { deadline: started + 280_000 }).catch((e) => [{ tab: '', message: String(e) }]);
+    const pods = await syncPodIndex(sb, { deadline: started + 270_000 }).catch((e) => [{ tab: '', message: String(e) }]);
+    // PODs the clients asked for that are now in the POD sheets → shared and queued; quiet client queues are emailed.
+    const { data: recheck } = await sb.rpc('recheck_pod_requests');
+    const clientMail = await autoFlushClientOutbox(sb).catch((e) => [{ status: 'failed', error: String(e) }]);
     return NextResponse.json({
       ok: results.every((r) => r.status !== 'failed'),
       remaining,
       pod_sheets: pods,
+      pods_found_later: recheck ?? 0,
+      client_mail: clientMail,
       results: results.map((r) => ({ tab: r.label, status: r.status, message: r.message, created: r.created, updated: r.updated, lost_requests: r.lostRequests })),
     });
   } catch (e) {

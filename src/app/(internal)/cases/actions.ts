@@ -9,7 +9,6 @@ import { errorText, must, numOrNull, str, strOrNull, withFlash } from '@/lib/fla
 import { cleanAwb } from '@/lib/normalize/awb';
 import { createClient } from '@/lib/supabase/server';
 import { todayIn } from '@/lib/time';
-import { emailLostDecision } from '@/lib/notify';
 
 async function run(back: string, fn: () => Promise<string | void>): Promise<never> {
   let msg: string | void;
@@ -131,7 +130,6 @@ export async function decideLost(fd: FormData) {
     if (error) throw error;
     const r = data as LostBulkResult;
     if (!r.done) throw new Error(r.first_error ?? 'Nothing was decided.');
-    await emailLostDecision(r.done_ids, decision, note, user.full_name ?? user.email);
     const verb = decision === 'approved' ? 'loss accepted (marked Lost)' : decision === 'rejected' ? 'rejected' : 'sent back for investigation';
     return `${plural(r.done, 'AWB')}: ${verb}.${r.skipped ? ` ${r.skipped} skipped: ${r.first_error}` : ''}`;
   });

@@ -8,6 +8,7 @@ import { fmtDate, fmtDateTime, fmtInr, SOURCE_LABELS } from '@/lib/format';
 import { getAgents, getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 import type { CaseRow } from '@/lib/types';
+import { PodShare } from '@/components/PodShare';
 import { addComment, assignToMe, decideLost, reopenLost, requestLost, resolveComplaint, saveAwbValue, saveInternalNote, setDeleted, shareSheetPod, updateCase } from '../actions';
 
 export const metadata = { title: 'Case' };
@@ -39,7 +40,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
   const { data: approver } = await supabase.rpc('can_approve_lost', { p_client_id: c.client_id });
   const canApprove = approver === true;
 
-  const [priv, updates, comments, approvals, sources, statuses, agents, others, complaints, sheetPods] = await Promise.all([
+  const [priv, updates, comments, approvals, sources, statuses, agents, others, complaints, sheetPods, podFiles, queued] = await Promise.all([
     supabase.from('case_private').select('internal_remark, updated_at').eq('case_id', id).maybeSingle(),
     supabase.from('case_updates').select('*').eq('case_id', id).order('created_at', { ascending: false }).limit(200),
     supabase.from('case_comments').select('*').eq('case_id', id).order('created_at'),
@@ -50,6 +51,8 @@ export default async function CasePage({ params, searchParams }: { params: Promi
     supabase.from('v_cases').select('id, case_number, escalation_date, status_label, status_color, client_display_name').eq('awb', c.awb).neq('id', id),
     supabase.from('pod_complaints').select('*').eq('case_id', id).order('raised_at', { ascending: false }),
     supabase.from('pod_index').select('pod_link, sheet_name, scan_date').eq('awb', c.awb).limit(10),
+    supabase.from('pod_files').select('id, filename, created_at').eq('case_id', id).order('created_at'),
+    supabase.from('client_outbox').select('id, kind, sent_at').eq('case_id', id).is('sent_at', null).eq('dropped', false),
   ]);
   const openComplaint = (complaints.data ?? []).find((k) => k.status === 'open');
   const userIds = new Set<string>();
@@ -157,6 +160,15 @@ export default async function CasePage({ params, searchParams }: { params: Promi
                 </form>
               ))}
             </div>
+          )}
+          {(c.status_category === 'open' || !!podFiles.data?.length) && (
+            <Panel title="POD for the client" className="mb-5">
+              {!!podFiles.data?.length && (
+                <p className="mb-2 text-sm">Files: {podFiles.data.map((p, i) => <span key={p.id}>{i ? ', ' : ''}<a href={`/api/pod-file/${p.id}`} target="_blank" rel="noreferrer">{p.filename}</a></span>)}</p>
+              )}
+              {!!queued.data?.length && <p className="mb-2 text-sm text-age-3">Waiting in the client email — <a href="/client-mail">Client mail</a>.</p>}
+              {c.status_category === 'open' && <PodShare rows={[{ case_id: c.id, awb: c.awb }]} back={`/cases/${c.id}`} compact />}
+            </Panel>
           )}
           <Panel title="Work on this case">
             {!canEdit && <p className="mb-3 text-ink-soft">Assigned to {c.agent_display_name}. Only they or an admin can edit it.</p>}

@@ -183,17 +183,17 @@ insert into public.sheet_sources (workbook_id, workbook_name, sheet_name, defaul
      (select id from c where name='Naaptol'), 'enrich', true, '[{"index":1,"target":"hub"}]'),
 
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'Critical Escalations',
-     (select id from c where name='Swift'), 'cases', true, '[{"index":6,"target":"client_remark"},{"index":8,"target":"status_raw"},{"index":9,"target":"ignore"}]'),
+     (select id from c where name='Swift'), 'cases', false, '[{"index":6,"target":"client_remark"},{"index":8,"target":"status_raw"},{"index":9,"target":"ignore"}]'),
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'fwd POD from july',
      (select id from c where name='Swift'), 'cases', true, '[]'),
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'RVP POD from july',
      (select id from c where name='Swift'), 'cases', true, '[]'),
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'POD FWD ',
-     (select id from c where name='Swift'), 'cases', true, '[]'),
+     (select id from c where name='Swift'), 'cases', false, '[]'),
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'POD RVP ',
-     (select id from c where name='Swift'), 'cases', true, '[{"index":8,"target":"hub"},{"index":10,"target":"status_raw"}]'),
+     (select id from c where name='Swift'), 'cases', false, '[{"index":8,"target":"hub"},{"index":10,"target":"status_raw"}]'),
   ('1WsOiZ_wL4s8qeLDIdEtcHYOA3vRSC-zsyZOsy5UG7Us', 'Swift <> Shadowfax Critical Escalation', 'Rough sheet',
-     (select id from c where name='Swift'), 'enrich', true, '[]'),
+     (select id from c where name='Swift'), 'enrich', false, '[]'),
 
   -- Added 9 Oct 2026. Pivot tables and their "Detail…" drill-down copies are not imported (they repeat the main tab).
   ('1zfam9OvaEGre_QsT8_erkl_BzsqV5agHd6eoIiQZGGI', 'Snapdeal', 'Snapdeal',

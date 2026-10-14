@@ -80,12 +80,17 @@ export async function updateSource(fd: FormData) {
 }
 
 export async function toggleSource(fd: FormData) {
-  await requireAdmin();
+  const user = await requireAdmin();
   await done('/imports', async () => {
+    if (user.role !== 'super_admin') throw new Error('Only a Super Admin can choose which tabs count.');
     const sb = await createClient();
     const on = str(fd, 'on') === '1';
     must(await sb.from('sheet_sources').update({ is_active: on }).eq('id', str(fd, 'id')).select('id'));
-    return on ? 'Tab switched on. It will be included in the next sync.' : 'Tab switched off. Its cases stay in the database.';
+    const { data: off, error } = await sb.rpc('refresh_case_scope');
+    if (error) throw new Error(error.message);
+    return on
+      ? `Tab switched on: its cases count again (the next sync also reads its new rows). ${off} case(s) from switched-off tabs are left out.`
+      : `Tab switched off: cases that come only from switched-off tabs are left out of the dashboard, lists and reports (${off} now). Switch it on to bring them back.`;
   });
 }
 

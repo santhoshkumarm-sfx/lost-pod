@@ -123,11 +123,12 @@ function ReportTabs({ kind }: { kind: string }) {
   );
 }
 
-const OTHER: RecipientKind[] = ['lost_request', 'loss_accepted', 'lost_decision', 'pod_request'];
+const OTHER: RecipientKind[] = ['client_update', 'lost_request', 'loss_accepted', 'lost_decision', 'pod_request'];
 const OTHER_NOTE: Partial<Record<RecipientKind, string>> = {
+  client_update: 'PODs shared and Lost decisions, sent together. Always to the client people who asked (else the client\'s portal users).',
   lost_request: 'Also to the approvers of that client.',
-  loss_accepted: 'The person who asked is always copied.',
-  lost_decision: 'The person who asked is always copied.',
+  loss_accepted: 'Copied on client updates that include a loss accepted.',
+  lost_decision: 'Copied on client updates that include a rejection or send-back.',
   pod_request: 'Always to the client who asked.',
 };
 

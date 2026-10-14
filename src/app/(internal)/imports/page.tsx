@@ -17,6 +17,7 @@ const STATUS_TONE: Record<string, string> = { success: 'text-age-0', partial: 't
 export default async function ImportsPage({ searchParams }: { searchParams: SearchParams }) {
   const user = await requireInternal();
   const admin = isAdminRole(user.role);
+  const isSuper = user.role === 'super_admin';
   const sp = await searchParams;
   const supabase = await createClient();
   const [sourcesRes, runsRes, clients, statsRes, podState, podBooks] = await Promise.all([
@@ -150,7 +151,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
                 <th>Tab</th>
                 <th>Use</th>
                 <th>Default client</th>
-                <th>On</th>
+                <th title="Super Admin: switch a tab off to leave its cases out">Counted</th>
                 <th>Last sync</th>
                 <th className="text-right">Rows</th>
                 <th>Result</th>
@@ -164,7 +165,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Sear
                   <td>{t.mode === 'enrich' ? 'Fill gaps only' : 'Cases'}</td>
                   <td>{t.clients?.name ?? '—'}</td>
                   <td>
-                    {admin ? (
+                    {isSuper ? (
                       <form action={toggleSource}>
                         <input type="hidden" name="id" value={t.id} />
                         <input type="hidden" name="on" value={t.is_active ? '0' : '1'} />

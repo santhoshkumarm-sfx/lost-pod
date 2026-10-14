@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SubmitButton } from '@/components/buttons';
+import { PodShare } from '@/components/PodShare';
 import { UPLOAD_COLUMNS_SQL, UploadHistory, UploadResult, type PodItemRow, type UploadLog } from '@/components/uploads';
 import { Field, Flash, PageHeader, Panel } from '@/components/ui';
 import { isAdminRole, requireInternal } from '@/lib/auth';
@@ -33,6 +34,14 @@ export default async function UploadCasesPage({ searchParams }: { searchParams: 
       />
       <Flash sp={sp} />
       {current.data && <UploadResult u={current.data as unknown as UploadLog} casesHref="/cases?category=pending_pod&sort=updated_at&dir=desc" items={(podItems.data ?? []) as PodItemRow[]} caseHref={(id) => `/cases/${id}`} />}
+      {current.data && (() => {
+        const open = ((podItems.data ?? []) as PodItemRow[]).filter((i) => i.result === 'not_found' && i.case_id).sort((a, b) => a.awb.localeCompare(b.awb));
+        return open.length > 0 && (
+          <Panel title={`Share the PODs still pending (${open.length} AWB${open.length === 1 ? '' : 's'})`} className="mb-5">
+            <PodShare rows={open.map((i) => ({ case_id: i.case_id!, awb: i.awb }))} back={`/cases/upload?upload=${uploadId}`} />
+          </Panel>
+        );
+      })()}
       <div className="mb-5 grid gap-5 xl:grid-cols-[1fr_380px]">
         <Panel title="Upload the filled-in template">
           <form action={uploadCases} className="space-y-3">

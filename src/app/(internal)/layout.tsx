@@ -7,7 +7,10 @@ export default async function InternalLayout({ children }: { children: React.Rea
   const user = await requireInternal();
   const admin = isAdminRole(user.role);
   const supabase = await createClient();
-  const { data: counts } = await supabase.rpc('sidebar_counts');
+  const [{ data: counts }, { count: mailWaiting }] = await Promise.all([
+    supabase.rpc('sidebar_counts'),
+    supabase.from('client_outbox').select('id', { count: 'exact', head: true }).is('sent_at', null).eq('dropped', false),
+  ]);
   const c = (counts ?? {}) as { unread?: number; emails?: number; lost_requests?: number; complaints?: number };
 
   const work: NavItem[] = [
@@ -18,6 +21,7 @@ export default async function InternalLayout({ children }: { children: React.Rea
     { href: '/email-escalations', label: 'Email escalations', badge: c.emails ?? 0 },
     { href: '/imports', label: 'Google Sheet imports' },
     { href: '/lost-approval', label: 'Lost approval', badge: c.lost_requests ?? 0 },
+    { href: '/client-mail', label: 'Client mail', badge: mailWaiting ?? 0 },
   ];
   const people: NavItem[] = [
     { href: '/clients', label: 'Clients' },

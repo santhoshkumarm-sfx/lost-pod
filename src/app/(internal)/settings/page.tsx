@@ -13,7 +13,8 @@ export const metadata = { title: 'Settings' };
 type Kind = 'list' | 'bool' | 'json' | 'text' | 'hour' | 'day' | 'order';
 const LABELS: Record<string, { label: string; kind: Kind }> = {
   // Email routing (Admins and Super Admins)
-  notify_admins_by_email: { label: 'Send emails automatically (new Lost requests and decisions)', kind: 'bool' },
+  notify_admins_by_email: { label: 'Send emails automatically (Lost requests, client updates)', kind: 'bool' },
+  client_mail_quiet_minutes: { label: 'Client email goes out automatically after no change for (minutes)', kind: 'json' },
   lost_request_email_to: { label: 'Lost requests — To', kind: 'list' },
   lost_request_email_cc: { label: 'Lost requests — CC', kind: 'list' },
   lost_decision_email_to: { label: 'Rejected / sent back — To', kind: 'list' },
@@ -48,7 +49,7 @@ const LABELS: Record<string, { label: string; kind: Kind }> = {
   timezone: { label: 'Timezone for aging', kind: 'text' },
 };
 
-const ROUTING_KEYS = ['notify_admins_by_email', 'lost_request_email_to', 'lost_request_email_cc', 'lost_decision_email_to', 'lost_decision_email_cc'];
+const ROUTING_KEYS = ['notify_admins_by_email', 'client_mail_quiet_minutes', 'lost_request_email_to', 'lost_request_email_cc', 'lost_decision_email_to', 'lost_decision_email_cc'];
 const ACCEPTED_KEYS = ['loss_accepted_email_to', 'loss_accepted_email_cc'];
 const CRITICAL_KEYS = ['auto_lost_after_days', 'critical_alert_enabled', 'critical_alert_hour', 'critical_alert_email_to', 'critical_alert_email_cc', 'critical_alert_to_agents'];
 const DAILY_KEYS = ['daily_report_enabled', 'daily_report_hour', 'report_recipients', 'report_cc', 'report_aging_order', 'report_lost_body_days'];
