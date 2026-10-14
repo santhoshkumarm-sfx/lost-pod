@@ -4,6 +4,7 @@ import { publicEnv } from './env';
 import { bridgeConfigured, sendMail, type MailAttachment } from './google';
 import { fmtDMY } from './format';
 import { todayIn } from './time';
+import { readPodFile } from './drive';
 
 /*
  * Client mail: everything the client should hear about (POD shared, Lost accepted / rejected / sent back) is queued
@@ -12,7 +13,6 @@ import { todayIn } from './time';
  * has been quiet for a while (Settings: client_mail_quiet_minutes; needs automatic emails switched on).
  */
 
-export const POD_BUCKET = 'pod-files';
 const MAX_ATTACH = 15 * 1024 * 1024;   // Gmail allows 25 MB per email; keep a margin for encoding
 
 export interface OutboxItem {
@@ -151,9 +151,8 @@ export async function flushClientOutbox(sb: SupabaseClient, opts: { clientIds?: 
         used.add(name.toLowerCase());
         let attached = false;
         if (size + (f.size_bytes ?? 0) <= MAX_ATTACH) {
-          const dl = await sb.storage.from(POD_BUCKET).download(f.path);
-          if (!dl.error && dl.data) {
-            const buf = Buffer.from(await dl.data.arrayBuffer());
+          const buf = await readPodFile(sb, f.path).catch(() => null);
+          if (buf) {
             if (size + buf.length <= MAX_ATTACH) {
               attachments.push({ filename: name, contentType: f.content_type || 'application/octet-stream', content: buf });
               size += buf.length;

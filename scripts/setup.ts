@@ -330,9 +330,13 @@ async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string)
   if (useBridge) {
     const { callBridge } = await import('../src/lib/google');
     try {
-      const p = await callBridge<{ email: string }>('ping', {}, 60_000);
+      const p = await callBridge<{ email: string; version?: number }>('ping', {}, 60_000);
       readerEmail = p.email;
       ok(`Google bridge is running as ${p.email}`);
+      if ((p.version ?? 0) < 4) {
+        warn('The Google bridge is an older version: POD files cannot be kept in Drive yet.');
+        todo.push('Update the Google bridge: open the Apps Script project, replace the code with apps-script/Bridge.gs, then Deploy → Manage deployments → ✎ Edit → Version: New version → Deploy (same URL). Run any function once if Google asks for permission.');
+      }
     } catch (e) {
       warn(`Google bridge: ${(e as Error).message}`);
       todo.push(`Fix the Google bridge (README, Google bridge): check the Web app URL and that the BRIDGE_SECRET script property is exactly:\n      ${inp.bridge.secret}`);

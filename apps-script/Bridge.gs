@@ -30,7 +30,7 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, bridge: 'lost-pod', version: 3 }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, bridge: 'lost-pod', version: 4 }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -42,7 +42,7 @@ function folder_(parent, name) {
 function handle_(action, p) {
   switch (action) {
     case 'ping':
-      return { email: Session.getEffectiveUser().getEmail(), version: 3 };
+      return { email: Session.getEffectiveUser().getEmail(), version: 4 };
 
     case 'saveFile': {
       // Uploaded case sheets are kept in "<folder>/<sub folder>" in the bridge owner's Drive.
@@ -137,6 +137,14 @@ function handle_(action, p) {
           };
         }),
       };
+    }
+
+    case 'driveToken': {
+      // A short-lived (about 1 hour) token of this account, so the dashboard server can upload and read POD files
+      // in your Drive directly (much faster than passing files through Apps Script). DriveApp below makes sure
+      // the token includes Drive access.
+      DriveApp.getRootFolder();
+      return { token: ScriptApp.getOAuthToken(), expiresInSeconds: 3000 };
     }
 
     case 'sendMail': {

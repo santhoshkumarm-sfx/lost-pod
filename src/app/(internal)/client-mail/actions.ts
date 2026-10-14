@@ -6,6 +6,7 @@ import { flushClientOutbox, podFilesLink, type FlushResult } from '@/lib/client-
 import { errorText, must, str, withFlash } from '@/lib/flash';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
+import { driveViewLink, logPodFiles } from '@/lib/drive';
 
 const safeBack = (b: string) => (b.startsWith('/') && !b.startsWith('//') ? b : '/client-mail');
 
@@ -30,6 +31,19 @@ export async function sharePods(fd: FormData) {
     const sb = await createClient();
     const r = must(await sb.rpc('share_pods', { p_items: useful.map((i) => ({ ...i, files_link: podFilesLink(i.case_id) })) })) as { shared: number; files: number; clients: string[] };
     const nFiles = new Set(useful.flatMap((i) => (i.files ?? []).map((f) => f.path))).size;
+    // Every file is also listed in the "POD lost — POD files" sheet next to the Drive folder.
+    if (nFiles) {
+      try {
+        const { data: cs } = await sb.from('v_cases').select('id, awb, client_display_name').in('id', useful.map((i) => i.case_id));
+        const byId = new Map(((cs ?? []) as { id: string; awb: string; client_display_name: string | null }[]).map((c) => [c.id, c]));
+        const when = new Date(Date.now() + 19800000).toISOString().slice(0, 16).replace('T', ' ');
+        await logPodFiles(createAdminClient(), useful.flatMap((i) => (i.files ?? []).filter((f) => f.path.startsWith('drive:')).map((f) => [
+          when, byId.get(i.case_id)?.client_display_name ?? '', byId.get(i.case_id)?.awb ?? '', f.name, driveViewLink(f.path.slice(6)), user.full_name ?? user.email,
+        ])));
+      } catch (e) {
+        console.error('POD file log sheet', e);
+      }
+    }
     let msg = `${r.shared} AWB(s) marked POD shared${nFiles ? ` with ${nFiles} file(s)` : ''} and added to the client email.`;
     if (str(fd, 'send') === '1') msg += ` ${describe(await flushClientOutbox(createAdminClient(), { clientIds: r.clients, trigger: 'manual', sentBy: user.id }))}`;
     else msg += ' Press "Send to client" when you are done — everything goes in one email.';

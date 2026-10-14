@@ -5,7 +5,10 @@ import { createClient } from '@/lib/supabase/server';
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await requirePoc();
   const supabase = await createClient();
-  const { data: clients } = await supabase.from('clients').select('name').order('name');
+  const [{ data: clients }, { count: unread }] = await Promise.all([
+    supabase.from('clients').select('name').order('name'),
+    supabase.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
+  ]);
   return (
     <div className="min-h-screen">
       <header className="bg-night text-white">
@@ -18,6 +21,9 @@ export default async function PortalLayout({ children }: { children: React.React
             <Link href="/portal?category=pending_pod" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Pending</Link>
             <Link href="/portal/pod-requests" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Requested PODs</Link>
             <Link href="/portal/new" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">Request POD</Link>
+            <Link href="/portal/updates" className="rounded px-2 py-1 text-night-text no-underline hover:bg-night-2 hover:text-white hover:no-underline">
+              Updates{unread ? <span className="ml-1 rounded-sm bg-age-3 px-1.5 text-2xs font-semibold text-white">{unread}</span> : null}
+            </Link>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="text-night-text">{user.full_name ?? user.email}</span>

@@ -1,18 +1,16 @@
 'use client';
 import { useRef, useState } from 'react';
-import { createClient } from '@/lib/supabase/browser';
 import { sharePods } from '@/app/(internal)/client-mail/actions';
 
 export interface ShareRow { case_id: string; awb: string; note?: string | null }
 
-const BUCKET = 'pod-files';
-const MAX_FILE = 20 * 1024 * 1024;
-const clean = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
+const MAX_FILE = 50 * 1024 * 1024;
+const CHUNK = 2 * 1024 * 1024;   // same as the server
 
 /**
  * Team: share PODs for several AWBs at once — a link and/or files (PDF, images, anything) per AWB, and files that
  * cover several AWBs (one PDF with many PODs): pick the files once and tick the AWBs they are for. File names do
- * not matter. Files go straight to storage from the browser; then everything is saved in one step and the client
+ * not matter. Files go to your Google Drive (folder "POD lost files"); then everything is saved in one step and the client
  * gets ONE email with all the AWBs (now, or with "Send to client" later).
  */
 export function PodShare({ rows, back, compact }: { rows: ShareRow[]; back: string; compact?: boolean }) {
@@ -43,29 +41,38 @@ export function PodShare({ rows, back, compact }: { rows: ShareRow[]; back: stri
     const used = rows.filter((r) => (links[r.case_id] ?? '').trim() || (files[r.case_id] ?? []).length || withCommon(r.case_id));
     if (!used.length) return setError(common.length ? 'Tick the AWBs the shared files are for.' : 'Add a POD link or file for at least one AWB.');
     const big = [...common, ...used.flatMap((r) => files[r.case_id] ?? [])].find((f) => f.size > MAX_FILE);
-    if (big) return setError(`${big.name} is larger than 20 MB.`);
+    if (big) return setError(`${big.name} is larger than 50 MB.`);
     const bad = used.find((r) => (links[r.case_id] ?? '').trim() && !/^https?:\/\//i.test(links[r.case_id].trim()));
     if (bad) return setError(`AWB ${bad.awb}: the link must start with http.`);
-    const sb = createClient();
     const total = common.length + used.reduce((t, r) => t + (files[r.case_id] ?? []).length, 0);
     let n = 0;
     type Up = { path: string; name: string; type: string; size: number };
-    const upload = async (f: File, folder: string): Promise<Up | null> => {
+    // Straight into the POD folder of your Google Drive, in 2 MB pieces (fast, and any file size up to 50 MB).
+    const upload = async (f: File): Promise<Up | null> => {
       n++;
-      setBusy(`Uploading ${n} of ${total}: ${f.name}`);
-      const path = `${folder}/${Date.now()}-${n}-${clean(f.name)}`;
-      const { error: e } = await sb.storage.from(BUCKET).upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
-      if (e) {
+      const fail = (m: string) => {
         setBusy(null);
-        setError(`${f.name}: ${e.message}`);
+        setError(`${f.name}: ${m}`);
         return null;
+      };
+      if (!f.size) return fail('the file is empty.');
+      setBusy(`Uploading ${n} of ${total}: ${f.name}`);
+      const start = await fetch('/api/pod-upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name, type: f.type, size: f.size }) });
+      const s0 = (await start.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!start.ok || !s0.id) return fail(s0.error ?? `upload could not start (${start.status})`);
+      for (let off = 0; off < f.size; off += CHUNK) {
+        setBusy(`Uploading ${n} of ${total}: ${f.name} (${Math.min(100, Math.round(((off + CHUNK) / f.size) * 100))}%)`);
+        const res = await fetch(`/api/pod-upload/${s0.id}?offset=${off}`, { method: 'PUT', body: f.slice(off, Math.min(off + CHUNK, f.size)) });
+        const r = (await res.json().catch(() => ({}))) as { done?: boolean; path?: string; error?: string };
+        if (!res.ok) return fail(r.error ?? `upload failed (${res.status})`);
+        if (r.done && r.path) return { path: r.path, name: f.name, type: f.type || 'application/octet-stream', size: f.size };
       }
-      return { path, name: f.name, type: f.type || 'application/octet-stream', size: f.size };
+      return fail('upload did not finish');
     };
     // Files for several AWBs are uploaded once and linked to every ticked AWB.
     const shared: Up[] = [];
     for (const f of common) {
-      const u = await upload(f, 'shared');
+      const u = await upload(f);
       if (!u) return;
       shared.push(u);
     }
@@ -73,7 +80,7 @@ export function PodShare({ rows, back, compact }: { rows: ShareRow[]; back: stri
     for (const r of used) {
       const up: Up[] = [];
       for (const f of files[r.case_id] ?? []) {
-        const u = await upload(f, r.case_id);
+        const u = await upload(f);
         if (!u) return;
         up.push(u);
       }

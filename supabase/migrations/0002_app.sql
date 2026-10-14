@@ -1962,7 +1962,7 @@ alter table public.pod_files enable row level security;
 alter table public.client_mail_batches enable row level security;
 drop policy if exists client_outbox_read on public.client_outbox;
 create policy client_outbox_read on public.client_outbox for select to authenticated
-  using ((select public.is_internal()) or (sent_at is not null and client_id in (select public.poc_client_ids())));
+  using ((select public.is_internal()) or (not dropped and client_id in (select public.poc_client_ids())));
 drop policy if exists client_outbox_write on public.client_outbox;
 create policy client_outbox_write on public.client_outbox for update to authenticated using ((select public.is_internal()));
 drop policy if exists pod_files_read on public.pod_files;
@@ -2116,3 +2116,63 @@ begin
 end $$;
 revoke execute on function public.recheck_pod_requests() from public, anon, authenticated;
 grant execute on function public.recheck_pod_requests() to service_role;
+
+-- ######## POD files in Google Drive (through the bridge) ########
+-- Large files go browser → app → Google Drive in chunks (resumable upload); the session URL stays on the server.
+create table if not exists public.pod_uploads (
+  id            uuid primary key default gen_random_uuid(),
+  session_url   text not null,
+  name          text not null,
+  content_type  text,
+  size_bytes    bigint,
+  drive_file_id text,
+  uploaded_by   uuid references public.profiles (id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+alter table public.pod_uploads enable row level security;   -- server (service role) only
+create table if not exists public.google_tokens (
+  key        text primary key,
+  token      text not null,
+  expires_at timestamptz not null
+);
+alter table public.google_tokens enable row level security; -- server (service role) only
+
+-- ######## Client portal: one notification per client "session" ########
+-- Every queued update (POD shared, Lost decision) shows up for the client's portal users at once, grouped:
+-- updates within 30 minutes go into the same unread notification instead of one per AWB.
+create or replace function public.notify_client_update()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  u uuid; v_id uuid; v_since timestamptz; v_pod int; v_acc int; v_other int; v_title text; v_body text;
+begin
+  if new.client_id is null then return new; end if;
+  for u in
+    select p.id from public.client_pocs cp join public.profiles p on p.id = cp.user_id
+     where cp.client_id = new.client_id and cp.is_active and p.is_active and p.role = 'client_poc'
+  loop
+    select id, created_at into v_id, v_since from public.notifications
+     where user_id = u and type = 'client_update' and read_at is null and created_at > now() - interval '30 minutes'
+     order by created_at desc limit 1;
+    if v_id is null then v_since := now() - interval '1 second'; end if;
+    select count(distinct case_id) filter (where kind = 'pod_shared'),
+           count(distinct case_id) filter (where kind = 'loss_accepted'),
+           count(distinct case_id) filter (where kind in ('loss_rejected', 'loss_sent_back'))
+      into v_pod, v_acc, v_other
+      from public.client_outbox where client_id = new.client_id and not dropped and created_at >= v_since;
+    v_title := concat_ws(' · ',
+      case when v_pod > 0 then v_pod || ' POD' || case when v_pod = 1 then '' else 's' end || ' shared' end,
+      case when v_acc > 0 then v_acc || ' loss accepted' end,
+      case when v_other > 0 then v_other || ' Lost request update' || case when v_other = 1 then '' else 's' end end);
+    v_body := 'Latest: ' || new.awb;
+    if v_id is null then
+      insert into public.notifications (user_id, type, title, body, case_id, link)
+      values (u, 'client_update', coalesce(nullif(v_title, ''), 'New update'), v_body, new.case_id, '/portal/updates');
+    else
+      update public.notifications set title = coalesce(nullif(v_title, ''), title), body = v_body where id = v_id;
+    end if;
+  end loop;
+  return new;
+end $$;
+drop trigger if exists client_outbox_notify on public.client_outbox;
+create trigger client_outbox_notify after insert on public.client_outbox
+  for each row execute function public.notify_client_update();
