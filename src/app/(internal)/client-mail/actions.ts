@@ -29,7 +29,8 @@ export async function sharePods(fd: FormData) {
     if (!useful.length) throw new Error('Add a POD link or file for at least one AWB.');
     const sb = await createClient();
     const r = must(await sb.rpc('share_pods', { p_items: useful.map((i) => ({ ...i, files_link: podFilesLink(i.case_id) })) })) as { shared: number; files: number; clients: string[] };
-    let msg = `${r.shared} AWB(s) marked POD shared${r.files ? ` with ${r.files} file(s)` : ''} and added to the client email.`;
+    const nFiles = new Set(useful.flatMap((i) => (i.files ?? []).map((f) => f.path))).size;
+    let msg = `${r.shared} AWB(s) marked POD shared${nFiles ? ` with ${nFiles} file(s)` : ''} and added to the client email.`;
     if (str(fd, 'send') === '1') msg += ` ${describe(await flushClientOutbox(createAdminClient(), { clientIds: r.clients, trigger: 'manual', sentBy: user.id }))}`;
     else msg += ' Press "Send to client" when you are done — everything goes in one email.';
     dest = withFlash(back, 'ok', msg);

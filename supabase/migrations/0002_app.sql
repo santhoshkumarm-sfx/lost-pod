@@ -1932,7 +1932,7 @@ create table if not exists public.pod_files (
   client_id    uuid references public.clients (id) on delete set null,
   awb          text not null,
   outbox_id    uuid references public.client_outbox (id) on delete set null,
-  path         text not null unique,          -- storage bucket "pod-files"
+  path         text not null,                 -- storage bucket "pod-files" (one file may cover several AWBs)
   filename     text not null,
   content_type text,
   size_bytes   bigint,
@@ -1940,6 +1940,8 @@ create table if not exists public.pod_files (
   created_at   timestamptz not null default now()
 );
 create index if not exists pod_files_case_idx on public.pod_files (case_id);
+alter table public.pod_files drop constraint if exists pod_files_path_key;
+create unique index if not exists pod_files_path_case_uq on public.pod_files (path, case_id);
 
 create table if not exists public.client_mail_batches (
   id         uuid primary key default gen_random_uuid(),
@@ -2058,7 +2060,7 @@ begin
       insert into public.pod_files (case_id, client_id, awb, outbox_id, path, filename, content_type, size_bytes, uploaded_by)
       values (v_case.id, v_case.client_id, v_case.awb, v_out, f ->> 'path', coalesce(nullif(f ->> 'name', ''), v_case.awb),
               f ->> 'type', nullif(f ->> 'size', '')::bigint, auth.uid())
-      on conflict (path) do nothing;
+      on conflict (path, case_id) do nothing;
       v_files := v_files + 1;
     end loop;
     if v_link is null then

@@ -129,27 +129,44 @@ export async function flushClientOutbox(sb: SupabaseClient, opts: { clientIds?: 
     const pf = (fdata ?? []) as PodFile[];
     const attachments: MailAttachment[] = [];
     const shown = new Map<string, { name: string; attached: boolean; id: string }[]>();
+    // One file can cover several AWBs: it is attached once, under its own name; a file for one AWB is named by the AWB.
+    const awbsOfPath = new Map<string, Set<string>>();
+    for (const f of pf) awbsOfPath.set(f.path, (awbsOfPath.get(f.path) ?? new Set()).add(f.awb));
     const perAwb = new Map<string, number>();
+    const done = new Map<string, { name: string; attached: boolean }>();
+    const used = new Set<string>();
     let size = 0;
     for (const f of pf.sort((a, b) => a.awb.localeCompare(b.awb))) {
-      const n = (perAwb.get(f.awb) ?? 0) + 1;
-      perAwb.set(f.awb, n);
-      const name = attachmentName(f.awb, f.filename, n);
-      let attached = false;
-      if (size + (f.size_bytes ?? 0) <= MAX_ATTACH) {
-        const dl = await sb.storage.from(POD_BUCKET).download(f.path);
-        if (!dl.error && dl.data) {
-          const buf = Buffer.from(await dl.data.arrayBuffer());
-          if (size + buf.length <= MAX_ATTACH) {
-            attachments.push({ filename: name, contentType: f.content_type || 'application/octet-stream', content: buf });
-            size += buf.length;
-            attached = true;
+      let got = done.get(f.path);
+      if (!got) {
+        const shared = (awbsOfPath.get(f.path)?.size ?? 1) > 1;
+        let name: string;
+        if (shared) name = f.filename;
+        else {
+          const n = (perAwb.get(f.awb) ?? 0) + 1;
+          perAwb.set(f.awb, n);
+          name = attachmentName(f.awb, f.filename, n);
+        }
+        for (let k = 2; used.has(name.toLowerCase()); k++) name = name.replace(/(\.[^.]+)?$/, (ext) => `-${k}${ext}`);
+        used.add(name.toLowerCase());
+        let attached = false;
+        if (size + (f.size_bytes ?? 0) <= MAX_ATTACH) {
+          const dl = await sb.storage.from(POD_BUCKET).download(f.path);
+          if (!dl.error && dl.data) {
+            const buf = Buffer.from(await dl.data.arrayBuffer());
+            if (size + buf.length <= MAX_ATTACH) {
+              attachments.push({ filename: name, contentType: f.content_type || 'application/octet-stream', content: buf });
+              size += buf.length;
+              attached = true;
+            }
           }
         }
+        got = { name, attached };
+        done.set(f.path, got);
       }
-      shown.set(f.outbox_id!, [...(shown.get(f.outbox_id!) ?? []), { name, attached, id: f.id }]);
+      shown.set(f.outbox_id!, [...(shown.get(f.outbox_id!) ?? []), { ...got, id: f.id }]);
     }
-    const r: FlushResult = { client, items: items.length, files: pf.length, to: [], status: 'sent' };
+    const r: FlushResult = { client, items: items.length, files: new Set(pf.map((f) => f.path)).size, to: [], status: 'sent' };
     try {
       if (!bridgeConfigured()) throw new Error('Gmail is not connected');
       const { to, cc } = await recipients(sb, clientId, items);
@@ -161,7 +178,7 @@ export async function flushClientOutbox(sb: SupabaseClient, opts: { clientIds?: 
       const subject = subjectFor(client, items, names);
       await sendMail({ to, cc, subject, html: html(client, items, shown), attachments });
       const { data: b } = await sb.from('client_mail_batches').insert({
-        client_id: clientId, items: items.length, files: pf.length, recipients: r.to, subject, status: 'sent', trigger: opts.trigger, sent_by: opts.sentBy ?? null,
+        client_id: clientId, items: items.length, files: r.files, recipients: r.to, subject, status: 'sent', trigger: opts.trigger, sent_by: opts.sentBy ?? null,
       }).select('id').single();
       for (let i = 0; i < items.length; i += 200) {
         await sb.from('client_outbox').update({ sent_at: new Date().toISOString(), batch_id: (b as { id: string } | null)?.id ?? null }).in('id', items.slice(i, i + 200).map((x) => x.id));
@@ -169,7 +186,7 @@ export async function flushClientOutbox(sb: SupabaseClient, opts: { clientIds?: 
     } catch (e) {
       r.status = 'failed';
       r.error = (e as Error).message.slice(0, 300);
-      await sb.from('client_mail_batches').insert({ client_id: clientId, items: items.length, files: pf.length, recipients: r.to, status: 'failed', error: r.error, trigger: opts.trigger, sent_by: opts.sentBy ?? null });
+      await sb.from('client_mail_batches').insert({ client_id: clientId, items: items.length, files: r.files, recipients: r.to, status: 'failed', error: r.error, trigger: opts.trigger, sent_by: opts.sentBy ?? null });
     }
     out.push(r);
   }
