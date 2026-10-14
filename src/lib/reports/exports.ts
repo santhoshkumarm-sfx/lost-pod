@@ -13,7 +13,7 @@ function header(ws: ExcelJS.Worksheet, row: number, teal = false) {
   r.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teal ? TEAL : HEAD } }; c.alignment = { horizontal: 'center' }; });
 }
 
-/** The dashboard tables in one sheet, same order and numbers (each as ₹ first, then AWBs, largest first). */
+/** The dashboard tables in one sheet, same order and numbers (each as AWBs first, then ₹, largest first). */
 export async function dashboardXlsx(s: PodStats): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'POD lost';
@@ -43,16 +43,16 @@ export async function dashboardXlsx(s: PodStats): Promise<Buffer> {
   };
   const age = (title: string, labels: string[], rows: { labels: (string | null)[]; cells: number[] }[], teal: boolean) => table(title, labels, ages, rows, { teal });
   const one = { total: false } as const;
-  age('POD pending — client wise (₹)', ['Client'], r.clientsV.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })), true);
   age('POD pending — client wise (AWBs)', ['Client'], r.clientsA.map((c) => ({ labels: [c.client], cells: c.age })), false);
-  table('POD accepted lost — client wise (₹)', ['Client'], ['Loss accepted (₹)'], r.lostClientsV.map((c) => ({ labels: [c.client], cells: [Number(c.lost_value)] })), { ...one, teal: true });
+  age('POD pending — client wise (₹)', ['Client'], r.clientsV.map((c) => ({ labels: [c.client], cells: c.age_value.map(Number) })), true);
   table('POD accepted lost — client wise (AWBs)', ['Client'], ['Loss accepted (AWBs)'], r.lostClientsA.map((c) => ({ labels: [c.client], cells: [c.lost] })), one);
-  age('Top 15 hubs — POD pending (₹)', ['Hub', 'City'], r.hubsV.map((h) => ({ labels: [h.hub, h.city], cells: h.age_value.map(Number) })), true);
+  table('POD accepted lost — client wise (₹)', ['Client'], ['Loss accepted (₹)'], r.lostClientsV.map((c) => ({ labels: [c.client], cells: [Number(c.lost_value)] })), { ...one, teal: true });
   age('Top 15 hubs — POD pending (AWBs)', ['Hub', 'City'], r.hubsA.map((h) => ({ labels: [h.hub, h.city], cells: h.age })), false);
-  age('POD pending — agent wise (₹)', ['Agent'], r.agentsV.map((a) => ({ labels: [a.agent], cells: a.age_value.map(Number) })), true);
+  age('Top 15 hubs — POD pending (₹)', ['Hub', 'City'], r.hubsV.map((h) => ({ labels: [h.hub, h.city], cells: h.age_value.map(Number) })), true);
   age('POD pending — agent wise (AWBs)', ['Agent'], r.agentsA.map((a) => ({ labels: [a.agent], cells: a.age })), false);
-  table('POD accepted lost — agent wise (₹)', ['Agent'], ['Loss accepted (₹)'], r.lostAgentsV.map((a) => ({ labels: [a.agent], cells: [Number(a.lost_value)] })), { ...one, teal: true });
+  age('POD pending — agent wise (₹)', ['Agent'], r.agentsV.map((a) => ({ labels: [a.agent], cells: a.age_value.map(Number) })), true);
   table('POD accepted lost — agent wise (AWBs)', ['Agent'], ['Loss accepted (AWBs)'], r.lostAgentsA.map((a) => ({ labels: [a.agent], cells: [a.lost] })), one);
+  table('POD accepted lost — agent wise (₹)', ['Agent'], ['Loss accepted (₹)'], r.lostAgentsV.map((a) => ({ labels: [a.agent], cells: [Number(a.lost_value)] })), { ...one, teal: true });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 

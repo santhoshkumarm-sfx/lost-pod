@@ -295,7 +295,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   const agentQ = (a: { agent_id: string | null; agent: string }): Record<string, string> =>
     a.agent_id ? { agent: a.agent_id } : a.agent === 'Unassigned' ? { agent: 'unassigned' } : { q: a.agent };
   const r = reportRows(s);
-  const both = ['value', 'count'] as const;
+  const both = ['count', 'value'] as const;   // AWBs first, then ₹ value
 
   return (
     <>

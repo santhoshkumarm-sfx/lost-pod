@@ -33,11 +33,11 @@ describe('report email tables', () => {
   };
   const html = statsEmailHtml(stats, { intro: 'x', footer: 'y' });
   it('has separate AWB and product value tables, numbered, with full numbers', () => {
-    expect(html).toContain('1. POD pending — client wise (₹)');
-    expect(html).toContain('2. POD pending — client wise (AWBs)');
-    expect(html).toContain('3. POD accepted lost — client wise (₹)');
-    expect(html).toContain('6. Top 15 hubs — POD pending (AWBs)');
-    expect(html).toContain('10. POD accepted lost — agent wise (AWBs)');
+    expect(html).toContain('1. POD pending — client wise (AWBs)');
+    expect(html).toContain('2. POD pending — client wise (₹)');
+    expect(html).toContain('3. POD accepted lost — client wise (AWBs)');
+    expect(html).toContain('6. Top 15 hubs — POD pending (₹)');
+    expect(html).toContain('10. POD accepted lost — agent wise (₹)');
     expect(html).not.toContain('Top 15 clients');
     expect(html).toContain('>5,000<');
     expect(html).toContain('>1,000<');
