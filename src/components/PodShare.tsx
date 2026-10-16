@@ -10,7 +10,7 @@ const CHUNK = 2 * 1024 * 1024;   // same as the server
 /**
  * Team: share PODs for several AWBs at once — a link and/or files (PDF, images, anything) per AWB, and files that
  * cover several AWBs (one PDF with many PODs): pick the files once and tick the AWBs they are for. File names do
- * not matter. Files go to your Google Drive (folder "POD lost files"); then everything is saved in one step and the client
+ * not matter. Files go to your Google Drive (folder "POD connect files"); then everything is saved in one step and the client
  * gets ONE email with all the AWBs (now, or with "Send to client" later).
  */
 export function PodShare({ rows, back, compact }: { rows: ShareRow[]; back: string; compact?: boolean }) {

@@ -59,13 +59,13 @@ export async function buildDailyReport(sb: SupabaseClient, opts: { withAttachmen
   const report = rep.data as DailyReportData;
   const s = st.data as PodStats;
   const today = fmtDMY(todayIn());
-  const filename = `pod-lost-report-${report.report_date}.xlsx`;
+  const filename = `pod-connect-report-${report.report_date}.xlsx`;
   const html = statsEmailHtml(s, {
-    intro: `Please find below the POD lost daily report as on ${today}.`,
+    intro: `Please find below the POD connect daily report as on ${today}.`,
     footer: `Dashboard: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a><br><br>Regards,<br>Trust &amp; Safety`,
   });
   const xlsx = opts.withAttachment ? await buildReportWorkbook(report, await fetchAllCases(sb), settings.agingOrder) : null;
-  return { data: report, html, filename, xlsx, recipients: settings.recipients, cc: settings.cc, subject: `POD lost daily report ${today}` };
+  return { data: report, html, filename, xlsx, recipients: settings.recipients, cc: settings.cc, subject: `POD connect daily report ${today}` };
 }
 
 /** Builds and emails the report, and logs the run in report_runs. Use a service-role client. */

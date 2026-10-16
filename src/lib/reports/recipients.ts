@@ -14,5 +14,5 @@ export type RecipientKind = keyof typeof RECIPIENT_KEYS;
 export const RECIPIENT_LABELS: Record<RecipientKind, string> = {
   critical: 'Critical alert', daily: 'Daily report', weekly: 'Weekly report',
   client_update: 'Client updates (one email per client)',
-  lost_request: 'POD lost requested', loss_accepted: 'POD lost accepted', lost_decision: 'POD lost rejected / sent back', pod_request: 'POD request (client)',
+  lost_request: 'POD connect requested', loss_accepted: 'POD connect accepted', lost_decision: 'POD connect rejected / sent back', pod_request: 'POD request (client)',
 };

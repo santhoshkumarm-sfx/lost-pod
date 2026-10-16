@@ -31,7 +31,7 @@ export async function sharePods(fd: FormData) {
     const sb = await createClient();
     const r = must(await sb.rpc('share_pods', { p_items: useful.map((i) => ({ ...i, files_link: podFilesLink(i.case_id) })) })) as { shared: number; files: number; clients: string[] };
     const nFiles = new Set(useful.flatMap((i) => (i.files ?? []).map((f) => f.path))).size;
-    // Every file is also listed in the "POD lost — POD files" sheet next to the Drive folder.
+    // Every file is also listed in the "POD connect — POD files" sheet next to the Drive folder.
     if (nFiles) {
       try {
         const { data: cs } = await sb.from('v_cases').select('id, awb, client_display_name').in('id', useful.map((i) => i.case_id));

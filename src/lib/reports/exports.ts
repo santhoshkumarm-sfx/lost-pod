@@ -16,8 +16,8 @@ function header(ws: ExcelJS.Worksheet, row: number, teal = false) {
 /** The dashboard tables in one sheet, same order and numbers (each as AWBs first, then ₹, largest first). */
 export async function dashboardXlsx(s: PodStats): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'POD lost';
-  const ws = wb.addWorksheet('POD lost');
+  wb.creator = 'POD connect';
+  const ws = wb.addWorksheet('POD connect');
   ws.getColumn(1).width = 26;
   for (let i = 2; i <= 20; i++) ws.getColumn(i).width = 12;
   const r = reportRows(s);
@@ -99,7 +99,7 @@ export async function lossAcceptedXlsx(sb: SupabaseClient, o: { from?: string | 
   }
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'POD lost';
+  wb.creator = 'POD connect';
   const ws = wb.addWorksheet(approved ? 'Loss accepted' : 'Loss requested', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
     { header: approved ? 'Accepted on' : 'Requested on', key: 'on', width: 18 },

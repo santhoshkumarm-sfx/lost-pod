@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(new Uint8Array(buf), {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="pod-lost-${status === 'approved' ? 'accepted' : 'requested'}-${todayIn()}.xlsx"`,
+        'Content-Disposition': `attachment; filename="pod-connect-${status === 'approved' ? 'accepted' : 'requested'}-${todayIn()}.xlsx"`,
         'Cache-Control': 'no-store',
       },
     });

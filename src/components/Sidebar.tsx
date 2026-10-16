@@ -21,7 +21,7 @@ export function Sidebar({ groups, footer }: { groups: { title?: string; items: N
     <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col bg-night text-night-text">
       <div className="px-4 pb-4 pt-5">
         <Link href="/" className="block text-[15px] font-semibold leading-tight text-white no-underline hover:no-underline">
-          POD lost
+          POD connect
         </Link>
         <div className="mt-0.5 text-xs text-night-text/70">Trust &amp; Safety</div>
       </div>

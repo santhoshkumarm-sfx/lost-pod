@@ -12,7 +12,7 @@ import { pocRequestLostBulk } from './actions';
 import { getBuckets, getStatuses } from '@/lib/lookups';
 import { createClient } from '@/lib/supabase/server';
 
-export const metadata = { title: 'POD lost' };
+export const metadata = { title: 'POD connect' };
 
 // Columns a client may see. Internal notes live in a separate table the portal cannot read.
 const PORTAL_COLUMNS =
@@ -46,7 +46,7 @@ export default async function PortalHome({ searchParams }: { searchParams: Searc
     <>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1>POD lost</h1>
+          <h1>POD connect</h1>
         </div>
         <div className="flex gap-2">
           <a className="btn" href={`/api/export/cases${exportQs ? `${exportQs}&` : '?'}format=csv`}>Download CSV</a>

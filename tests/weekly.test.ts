@@ -21,7 +21,7 @@ describe('weekly summary', () => {
     expect(html.indexOf('Pending (open)')).toBeLessThan(html.indexOf('Loss requested'));
     expect(html).toContain('>120<');
     expect(html).toContain('>14<');
-    expect(weeklySubject(data)).toBe('POD lost weekly report from 29/09/2026 to 05/10/2026');
+    expect(weeklySubject(data)).toBe('POD connect weekly report from 29/09/2026 to 05/10/2026');
   });
   it('hides idle clients, escapes text and caps long lists in the body', () => {
     expect(html).not.toContain('>Quiet<');
@@ -69,7 +69,7 @@ describe('daily critical alert', () => {
     expect(html).toContain('Showing 50 of 205');
     expect(html).not.toContain('<b>x</b>');
     expect(html).toContain('>205<');
-    expect(criticalSubject(rows, 7)).toMatch(/^POD lost critical alert \d\d\/\d\d\/\d{4}$/);
+    expect(criticalSubject(rows, 7)).toMatch(/^POD connect critical alert \d\d\/\d\d\/\d{4}$/);
   });
   it('agent version is personal and has no agent column', () => {
     const html = renderCriticalHtml(rows.slice(0, 3), { days: 7, siteUrl: 'https://x.test', forAgent: 'Assem' });

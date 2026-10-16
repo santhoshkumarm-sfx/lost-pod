@@ -71,9 +71,9 @@ async function recipients(sb: SupabaseClient, clientId: string | null, items: Ou
 function subjectFor(client: string, items: OutboxItem[], names: string[]): string {
   const kinds = new Set(items.map((i) => i.kind));
   const day = fmtDMY(todayIn());
-  if (kinds.size === 1 && kinds.has('loss_accepted')) return `POD lost accepted by ${names.join(', ') || 'Shadowfax'}`;
+  if (kinds.size === 1 && kinds.has('loss_accepted')) return `POD connect accepted by ${names.join(', ') || 'Shadowfax'}`;
   if (kinds.size === 1 && kinds.has('pod_shared')) return `POD shared — ${client} — ${items.length} AWB${items.length === 1 ? '' : 's'} — ${day}`;
-  return `POD lost update — ${client} — ${items.length} AWB${items.length === 1 ? '' : 's'} — ${day}`;
+  return `POD connect update — ${client} — ${items.length} AWB${items.length === 1 ? '' : 's'} — ${day}`;
 }
 
 /** File name in the email: the AWB, then a number when one AWB has several files. */

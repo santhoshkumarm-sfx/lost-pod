@@ -72,7 +72,7 @@ function loadInputs() {
     siteUrl,
     smtp: {
       host: get('SMTP_HOST'), port: get('SMTP_PORT') || '587', user: get('SMTP_USER'), pass: get('SMTP_PASS'),
-      sender: get('SMTP_SENDER_EMAIL'), name: get('SMTP_SENDER_NAME') || 'POD lost',
+      sender: get('SMTP_SENDER_EMAIL'), name: get('SMTP_SENDER_NAME') || 'POD connect',
     },
     supabaseUrlOverride: process.env.SUPABASE_URL_OVERRIDE ?? '',
   };
@@ -147,13 +147,13 @@ revoke all on public.app_migrations from anon, authenticated;`);
   info(`${counts.clients} clients, ${counts.tabs} tracker tabs, ${counts.statuses} statuses in the database`);
 }
 
-const INVITE_HTML = `<h2>You're invited to POD lost</h2>
+const INVITE_HTML = `<h2>You're invited to POD connect</h2>
 <p>An admin has created an account for you. Click the button below to set your password and sign in.</p>
 <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite" style="display:inline-block;padding:10px 16px;background:#1F5FBF;color:#ffffff;text-decoration:none;border-radius:4px">Set my password</a></p>
 <p style="color:#4A5566;font-size:13px">If you were not expecting this, you can ignore this email.</p>`;
 
 const RECOVERY_HTML = `<h2>Reset your password</h2>
-<p>Click the button below to choose a new password for POD lost.</p>
+<p>Click the button below to choose a new password for POD connect.</p>
 <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery" style="display:inline-block;padding:10px 16px;background:#1F5FBF;color:#ffffff;text-decoration:none;border-radius:4px">Choose a new password</a></p>
 <p style="color:#4A5566;font-size:13px">If you did not ask for this, you can ignore this email; your password stays the same.</p>`;
 
@@ -179,9 +179,9 @@ async function configureAuth(api: ReturnType<typeof supabaseApi>, inp: Inputs, s
   // standard emails are used; the app handles their links at /auth/callback, so both work.
   try {
     await api.call('PATCH', `/v1/projects/${inp.ref}/config/auth`, {
-      mailer_subjects_invite: "You're invited to POD lost",
+      mailer_subjects_invite: "You're invited to POD connect",
       mailer_templates_invite_content: INVITE_HTML,
-      mailer_subjects_recovery: 'Reset your POD lost password',
+      mailer_subjects_recovery: 'Reset your POD connect password',
       mailer_templates_recovery_content: RECOVERY_HTML,
     });
     return true;
@@ -381,7 +381,7 @@ async function checkGoogle(inp: Inputs, serviceKey: string, supabaseUrl: string)
 
 // ---------------------------------------------------------------- main
 async function main() {
-  console.log(bold(`POD lost — setup (version ${APP_VERSION})`));
+  console.log(bold(`POD connect — setup (version ${APP_VERSION})`));
   const inp = loadInputs();
   const api = supabaseApi(inp);
   const supabaseUrl = inp.supabaseUrlOverride || `https://${inp.ref}.supabase.co`;

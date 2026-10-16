@@ -1,5 +1,5 @@
 /**
- * POD lost — Google bridge (no Google Cloud project needed).
+ * POD connect — Google bridge (no Google Cloud project needed).
  *
  * Runs as YOUR Google account, so it can read every tracker you can open and search/send from your
  * mailbox. The dashboard calls it over HTTPS with a shared secret.
@@ -148,7 +148,7 @@ function handle_(action, p) {
     }
 
     case 'sendMail': {
-      var opts = { htmlBody: p.html, name: p.senderName || 'POD lost' };
+      var opts = { htmlBody: p.html, name: p.senderName || 'POD connect' };
       if (p.cc && p.cc.length) opts.cc = p.cc.join(',');
       if (p.attachments && p.attachments.length) {
         opts.attachments = p.attachments.map(function (a) {

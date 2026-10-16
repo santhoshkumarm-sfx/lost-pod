@@ -45,7 +45,7 @@ export default async function PortalCase({ params, searchParams }: { params: Pro
 
   return (
     <>
-      <div className="mb-1 text-xs text-ink-faint"><Link href="/portal">POD lost</Link></div>
+      <div className="mb-1 text-xs text-ink-faint"><Link href="/portal">POD connect</Link></div>
       <div className="mb-5">
         <h1 className="awb text-2xl font-medium">{c.awb}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-3">

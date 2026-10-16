@@ -13,7 +13,7 @@ import { fmtInr, fmtNum, SOURCE_LABELS } from '@/lib/format';
 import { createClient } from '@/lib/supabase/server';
 import type { CaseRow } from '@/lib/types';
 
-export const metadata = { title: 'POD lost' };
+export const metadata = { title: 'POD connect' };
 
 interface StatusStats {
   by_status: { code: string; label: string; category: string; color: string; count: number }[];
@@ -111,7 +111,7 @@ async function DetailedDashboard({ sp }: { sp: Record<string, string | string[] 
 
   return (
     <>
-      <PageHeader title="POD lost — detailed" />
+      <PageHeader title="POD connect — detailed" />
       <Flash sp={sp} />
       <DashTabs detailed />
       <CaseFilterForm
@@ -300,7 +300,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
   return (
     <>
       <PageHeader
-        title="POD lost"
+        title="POD connect"
         sub={scopeNote || undefined}
         actions={
           <div className="flex gap-2">

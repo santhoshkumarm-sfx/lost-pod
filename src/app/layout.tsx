@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'POD lost', template: '%s · POD lost' },
+  title: { default: 'POD connect', template: '%s · POD connect' },
   description: 'Lost shipment and POD escalation management',
   robots: { index: false, follow: false },
 };

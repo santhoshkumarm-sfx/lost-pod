@@ -71,7 +71,7 @@ export const CASE_SHEET_COLUMNS = [
 /** The consolidated report attached to the daily email. */
 export async function buildReportWorkbook(data: DailyReportData, cases: CaseExportRow[], agingOrder: 'asc' | 'desc'): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'POD lost';
+  wb.creator = 'POD connect';
   wb.created = new Date();
 
   const s = data.summary;

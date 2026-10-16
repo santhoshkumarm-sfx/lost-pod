@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="pod-lost-dashboard-${todayIn()}.xlsx"`,
+      'Content-Disposition': `attachment; filename="pod-connect-dashboard-${todayIn()}.xlsx"`,
       'Cache-Control': 'no-store',
     },
   });

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Installs a FULL "POD lost" package over your project folder, so nothing from an earlier update can be left
+# Installs a FULL "POD connect" package over your project folder, so nothing from an earlier update can be left
 # behind or half-applied. Run from your project folder (e.g. /workspaces/lost-pod):
 #
-#   unzip -o pod-lost-full-*.zip -d /tmp/pod-lost-pkg && bash /tmp/pod-lost-pkg/INSTALL.sh
+#   unzip -o pod-connect-full-*.zip -d /tmp/pod-connect-pkg && bash /tmp/pod-connect-pkg/INSTALL.sh
 #
 # Keeps your secrets (setup.env, .env.local), git history and node_modules.
 set -euo pipefail
 
-PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pod-lost"
+PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pod-connect"
 DEST="$PWD"
 if [ ! -f "$PKG/package.json" ]; then echo "✗ Package folder not found next to INSTALL.sh"; exit 1; fi
 if [ ! -f "$DEST/package.json" ] || [ ! -d "$DEST/.git" ]; then echo "✗ Run this from your project folder (the one with package.json and .git)"; exit 1; fi
 VERSION="$(sed -n "s/.*APP_VERSION = '\(.*\)'.*/\1/p" "$PKG/src/lib/version.ts")"
-echo "== Installing POD lost version $VERSION into $DEST"
+echo "== Installing POD connect version $VERSION into $DEST"
 
 echo "== 1/6 Removing old update folders and zips"
-rm -rf "$DEST"/lost-pod-update "$DEST"/lost-pod-update*.zip "$DEST"/pod-lost-full*.zip
+rm -rf "$DEST"/lost-pod-update "$DEST"/lost-pod-update*.zip "$DEST"/pod-lost-full*.zip "$DEST"/pod-connect-full*.zip
 
 echo "== 2/6 Removing files that are no longer part of the app"
 git -C "$DEST" ls-files -z | while IFS= read -r -d '' f; do
@@ -35,7 +35,7 @@ if [ "${POD_LOST_SKIP_SETUP:-}" = 1 ]; then echo "   (skipped)"; else npm run se
 
 echo "== 6/6 Saving to git"
 git add -A
-git commit -q -m "POD lost $VERSION (full package)" || echo "   (nothing new to commit)"
+git commit -q -m "POD connect $VERSION (full package)" || echo "   (nothing new to commit)"
 git push || echo "   ✗ git push failed — run 'git push' yourself"
 
 echo

@@ -3,15 +3,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { BridgeError, callBridge } from './google';
 
 /*
- * POD files live in YOUR Google Drive, folder "POD lost files" (and a log sheet "POD lost — POD files" next to it).
+ * POD files live in YOUR Google Drive, folder "POD connect files" (and a log sheet "POD connect — POD files" next to it).
  * The bridge only hands out a short-lived token of the bridge account (cached ~50 minutes); uploads and downloads
  * then go straight to the Google Drive / Sheets APIs, which is much faster than passing files through Apps Script.
  */
 
 const API = () => (process.env.GOOGLE_API_BASE ?? 'https://www.googleapis.com').replace(/\/$/, '');
 const SHEETS = () => (process.env.GOOGLE_SHEETS_API_BASE ?? 'https://sheets.googleapis.com').replace(/\/$/, '');
-const FOLDER = 'POD lost files';
-const LOG_NAME = 'POD lost — POD files';
+const FOLDER = 'POD connect files';
+const LOG_NAME = 'POD connect — POD files';
 export const CHUNK = 2 * 1024 * 1024;   // multiple of 256 KB, well under the 4.5 MB request limit
 
 let memo: { token: string; exp: number } | null = null;
@@ -58,7 +58,7 @@ async function saveSetting(sb: SupabaseClient, key: string, value: string, descr
   await sb.from('app_settings').upsert({ key, value, description }, { onConflict: 'key' });
 }
 
-/** The "POD lost files" folder in the bridge account's Drive (created once). */
+/** The "POD connect files" folder in the bridge account's Drive (created once). */
 export async function podFolder(sb: SupabaseClient): Promise<string> {
   const known = await setting(sb, 'drive_pod_folder_id');
   if (known) return known;
@@ -109,7 +109,7 @@ export async function downloadDriveFile(sb: SupabaseClient, fileId: string): Pro
 
 export const driveViewLink = (fileId: string) => `https://drive.google.com/file/d/${fileId}/view`;
 
-/** Appends rows to the "POD lost — POD files" sheet in the POD folder (created once with a header row). */
+/** Appends rows to the "POD connect — POD files" sheet in the POD folder (created once with a header row). */
 export async function logPodFiles(sb: SupabaseClient, rows: (string | number)[][]): Promise<void> {
   if (!rows.length) return;
   let id = await setting(sb, 'drive_pod_log_sheet_id');

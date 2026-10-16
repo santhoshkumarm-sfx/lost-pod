@@ -14,7 +14,7 @@ export default async function PortalLayout({ children }: { children: React.React
       <header className="bg-night text-white">
         <div className="mx-auto flex max-w-[1300px] items-center gap-6 px-6 py-3">
           <Link href="/portal" className="font-semibold text-white no-underline hover:no-underline">
-            POD lost
+            POD connect
             <span className="ml-2 font-normal text-night-text">{(clients ?? []).map((c) => c.name).join(', ')}</span>
           </Link>
           <nav className="flex gap-1 text-sm">

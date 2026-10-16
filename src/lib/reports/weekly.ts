@@ -51,9 +51,9 @@ export async function buildWeeklyReport(sb: SupabaseClient, opts: { withAttachme
   const [wk, st] = await Promise.all([sb.rpc('weekly_report_data', { p_days: 7 }), sb.rpc('pod_stats', { p: {} })]);
   for (const r of [wk, st]) if (r.error) throw new Error(r.error.message);
   const d = wk.data as WeeklyReportData;
-  const filename = `pod-lost-weekly-${d.period_to}.xlsx`;
+  const filename = `pod-connect-weekly-${d.period_to}.xlsx`;
   const html = statsEmailHtml(st.data as PodStats, {
-    intro: `Please find below the POD lost weekly report from ${fmtDMY(d.period_from)} to ${fmtDMY(d.period_to)}.`,
+    intro: `Please find below the POD connect weekly report from ${fmtDMY(d.period_from)} to ${fmtDMY(d.period_to)}.`,
     footer: `Dashboard: <a href="${publicEnv.siteUrl}/dashboard">${publicEnv.siteUrl}/dashboard</a><br><br>Regards,<br>Trust &amp; Safety`,
   });
   // The Excel is only built for the Download button, never attached.

@@ -26,8 +26,8 @@ function group(rows: CriticalRow[], key: (r: CriticalRow) => string) {
 
 export function criticalSubject(rows: CriticalRow[], days: number, forAgent?: string): string {
   return forAgent
-    ? `POD lost critical pending — ${forAgent} — ${fmtDMY(todayIn())}`
-    : `POD lost critical alert ${fmtDMY(todayIn())}`;
+    ? `POD connect critical pending — ${forAgent} — ${fmtDMY(todayIn())}`
+    : `POD connect critical alert ${fmtDMY(todayIn())}`;
 }
 
 export function renderCriticalHtml(rows: CriticalRow[], o: { days: number; siteUrl: string; forAgent?: string; attachmentName?: string | null }): string {

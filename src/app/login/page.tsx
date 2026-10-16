@@ -13,7 +13,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
     <main className="grid min-h-screen place-items-center bg-night px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-white">
-          <div className="text-xl font-semibold">POD lost</div>
+          <div className="text-xl font-semibold">POD connect</div>
           <div className="text-sm text-night-text">Shadowfax Trust &amp; Safety</div>
         </div>
         <div className="rounded-md bg-white p-6 shadow-sm">
